@@ -1,0 +1,49 @@
+managed implementation in class ZBP_MERP_R_COMPANY_CODE unique;
+strict ( 2 );
+with draft;
+extensible;
+
+define behavior for ZMERP_R_COMPANY_CODE alias CompanyCode
+persistent table ZMERP_COMP_CODE
+extensible
+draft table ZMERP_COMP_D
+etag master LocalLastChangedAt
+lock master total etag LastChangedAt
+authorization master( global )
+{
+  create;
+  update;
+  delete ( precheck );
+
+  field ( mandatory : create, readonly : update ) CompanyCode;
+  field ( mandatory ) CompanyName, CompanyPrefix, CurrencyCode, Country;
+  field ( readonly ) CreatedBy, CreatedAt, LocalLastChangedBy, LocalLastChangedAt, LastChangedAt;
+
+  determination formatFields on modify { field CompanyPrefix; }
+
+  validation validateMandatoryFields on save { create; update; field CompanyName, CompanyPrefix, CurrencyCode, Country; }
+
+  draft action Edit;
+  draft action Activate optimized;
+  draft action Discard;
+  draft action Resume;
+  draft determine action Prepare
+  {
+    validation validateMandatoryFields;
+  }
+
+  mapping for zmerp_comp_code
+  {
+    CompanyCode          = company_code;
+    CompanyName          = company_name;
+    CompanyPrefix        = company_prefix;
+    CurrencyCode         = currency_code;
+    Country              = country;
+    IsBlocked            = is_blocked;
+    CreatedBy            = created_by;
+    CreatedAt            = created_at;
+    LocalLastChangedBy   = local_last_changed_by;
+    LocalLastChangedAt   = local_last_changed_at;
+    LastChangedAt        = last_changed_at;
+  }
+}

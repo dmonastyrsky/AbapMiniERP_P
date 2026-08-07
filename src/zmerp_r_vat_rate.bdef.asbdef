@@ -1,0 +1,48 @@
+managed implementation in class ZBP_MERP_R_VAT_RATE unique;
+strict ( 2 );
+with draft;
+extensible;
+
+define behavior for ZMERP_R_VAT_RATE alias VatRate
+persistent table ZMERP_VAT_RATE
+extensible
+draft table ZMERP_VATR_D
+etag master LocalLastChangedAt
+lock master total etag LastChangedAt
+early numbering
+authorization master( global )
+{
+  create;
+  update;
+  delete ( precheck );
+
+  field ( readonly ) VatCode;
+  field ( readonly ) CreatedBy, CreatedAt, LocalLastChangedBy, LocalLastChangedAt, LastChangedAt;
+  field ( mandatory ) Description, Percentage;
+
+  validation validateMandatoryFields on save { create; update; field Description; }
+  validation validatePercentage on save { create; update; field Percentage; }
+
+  draft action Edit;
+  draft action Activate optimized;
+  draft action Discard;
+  draft action Resume;
+  draft determine action Prepare
+  {
+    validation validateMandatoryFields;
+    validation validatePercentage;
+  }
+
+  mapping for zmerp_vat_rate
+  {
+    VatCode            = vat_code;
+    Description        = description;
+    Percentage         = percentage;
+    IsBlocked          = is_blocked;
+    CreatedBy          = created_by;
+    CreatedAt          = created_at;
+    LocalLastChangedBy = local_last_changed_by;
+    LocalLastChangedAt = local_last_changed_at;
+    LastChangedAt      = last_changed_at;
+  }
+}

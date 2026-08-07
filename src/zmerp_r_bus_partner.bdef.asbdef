@@ -1,0 +1,55 @@
+managed implementation in class ZBP_MERP_R_BUS_PARTNER unique;
+strict ( 2 );
+with draft;
+extensible;
+
+define behavior for ZMERP_R_BUS_PARTNER alias BusinessPartner
+persistent table zmerp_bus_part
+extensible
+draft table zmerp_bus_part_d
+etag master LocalLastChangedAt
+lock master total etag LastChangedAt
+early numbering
+authorization master ( global )
+{
+  create;
+  update;
+  delete ( precheck );
+
+  field ( readonly ) PartnerCode;
+  field ( readonly ) CreatedBy, CreatedAt, LocalLastChangedBy, LocalLastChangedAt, LastChangedAt;
+  field ( mandatory ) PartnerName;
+
+  validation validateMandatoryFields on save { create; update; field PartnerName; }
+  validation validatePartnerRole on save { create; update; field IsCustomer, IsSupplier; }
+
+  draft action Edit;
+  draft action Activate optimized;
+  draft action Discard;
+  draft action Resume;
+  draft determine action Prepare
+  {
+    validation validateMandatoryFields;
+    validation validatePartnerRole;
+  }
+
+  mapping for zmerp_bus_part
+  {
+    PartnerCode        = partner_code;
+    PartnerName        = partner_name;
+    IsCustomer         = is_customer;
+    IsSupplier         = is_supplier;
+    TaxNumber          = tax_number;
+    Address            = address;
+    City               = city;
+    Country            = country;
+    Phone              = phone;
+    Email              = email;
+    IsBlocked          = is_blocked;
+    CreatedBy          = created_by;
+    CreatedAt          = created_at;
+    LocalLastChangedBy = local_last_changed_by;
+    LocalLastChangedAt = local_last_changed_at;
+    LastChangedAt      = last_changed_at;
+  }
+}

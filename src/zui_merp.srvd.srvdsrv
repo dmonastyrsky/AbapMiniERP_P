@@ -1,0 +1,17 @@
+@EndUserText: {
+  label: 'Service Definition for Mini ERP UI'
+}
+@ObjectModel: {
+  leadingEntity: {
+    name: 'ZMERP_C_COMPANY_CODE'
+  }
+}
+define service ZUI_MERP
+  provider contracts odata_v4_ui {
+  expose ZMERP_C_COMPANY_CODE as CompanyCode;
+  expose ZMERP_C_WAREHOUSE    as Warehouse;
+  expose ZMERP_C_VAT_RATE     as VatRate;
+  expose ZMERP_C_ITEM_GROUP   as ItemGroup;
+  expose ZMERP_C_ITEM         as Item;
+  expose ZMERP_C_BUS_PARTNER  as BusinessPartner;
+}

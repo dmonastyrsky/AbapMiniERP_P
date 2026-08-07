@@ -1,0 +1,46 @@
+managed implementation in class ZBP_MERP_R_ITEM_GROUP unique;
+strict ( 2 );
+with draft;
+extensible;
+
+define behavior for ZMERP_R_ITEM_GROUP alias ItemGroup
+persistent table zmerp_item_group
+extensible
+draft table zmerp_item_grp_d
+etag master LocalLastChangedAt
+lock master total etag LastChangedAt
+early numbering
+authorization master ( global )
+{
+  create;
+  update;
+  delete ( precheck );
+
+  field ( readonly ) ItemGroupCode;
+  field ( readonly ) CreatedBy, CreatedAt, LocalLastChangedBy, LocalLastChangedAt, LastChangedAt;
+  field ( mandatory ) Description, DefaultVatCode;
+
+  validation validateMandatoryFields on save { create; update; field Description, DefaultVatCode; }
+
+  draft action Edit;
+  draft action Activate optimized;
+  draft action Discard;
+  draft action Resume;
+  draft determine action Prepare
+  {
+    validation validateMandatoryFields;
+  }
+
+  mapping for zmerp_item_group
+  {
+    ItemGroupCode      = item_group_code;
+    Description        = description;
+    DefaultVatCode     = default_vat_code;
+    IsBlocked          = is_blocked;
+    CreatedBy          = created_by;
+    CreatedAt          = created_at;
+    LocalLastChangedBy = local_last_changed_by;
+    LocalLastChangedAt = local_last_changed_at;
+    LastChangedAt      = last_changed_at;
+  }
+}

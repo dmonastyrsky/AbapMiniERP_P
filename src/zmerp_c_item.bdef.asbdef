@@ -1,0 +1,24 @@
+projection implementation in class ZBP_MERP_C_ITEM unique;
+strict ( 2 );
+extensible;
+use draft;
+use side effects;
+
+define behavior for ZMERP_C_ITEM alias Item
+extensible
+use etag
+{
+  use create;
+  use update;
+  use delete;
+
+  use action Edit;
+  use action Activate;
+  use action Discard;
+  use action Resume;
+  use action Prepare;
+
+  side effects {
+    field ItemGroupCode affects field DefaultVatCode;
+  }
+}

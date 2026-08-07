@@ -1,0 +1,6 @@
+@EndUserText.label: 'ZMERP_R_WAREHOUSE'
+@MappingRole: true
+define role ZMERP_R_WAREHOUSE {
+  grant select on ZMERP_R_WAREHOUSE
+  where TRUE;
+}

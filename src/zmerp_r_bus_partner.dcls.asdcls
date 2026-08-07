@@ -1,0 +1,6 @@
+@EndUserText.label: 'Access control for ZMERP_R_BUS_PARTNER'
+@MappingRole: true
+define role ZMERP_R_BUS_PARTNER {
+  grant select on ZMERP_R_BUS_PARTNER
+  where TRUE;
+}
