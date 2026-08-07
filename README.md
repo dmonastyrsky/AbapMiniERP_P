@@ -1,5 +1,7 @@
 # Mini ERP – Procurement, Inventory and Sales
 
+[English](README.md) | [Deutsch](README.de.md) | [Українська](README.ua.md)
+
 [![SAP ABAP Cloud](https://img.shields.io/badge/SAP-ABAP%20Cloud-0FAAFF?style=flat-square&logo=sap)](https://www.sap.com)
 [![SAP RAP](https://img.shields.io/badge/Model-SAP%20RAP%20(Managed)-0073C6?style=flat-square)](https://help.sap.com)
 [![Clean Core](https://img.shields.io/badge/Architecture-Clean%20Core%20Compliant-green?style=flat-square)](#6-clean-core-principles)
