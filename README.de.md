@@ -1,4 +1,4 @@
-# Mini ERP – Procurement, Inventory and Sales (Mini-ERP – Einkauf, Lagerhaltung und Vertrieb)
+# Mini-ERP – Einkauf, Lagerhaltung und Vertrieb
 
 [English](README.md) | [Deutsch](README.de.md) | [Українська](README.ua.md)
 
@@ -19,7 +19,7 @@ Das Projekt implementiert einen vereinfachten Einkaufs-, Lager- und Vertriebspro
 
 Die Anwendung dient als Portfolio-Projekt zur Demonstration einer cloudfähigen ABAP-Entwicklung, strikter Schichtentrennung und Best-Practice-Entwurfsmustern (Enterprise Design Patterns).
 
-Detaillierte technische Architektur- und Domänenmodell-Spezifikationen finden Sie in der [Architecture & Technical Design Documentation (Dokumentation zur Architektur und zum technischen Design)](docs/ARCHITECTURE.md).
+Detaillierte technische Architektur- und Domänenmodell-Spezifikationen finden Sie in der [Architecture & Technical Design Documentation](docs/Architecture.md).
 
 ---
 
@@ -99,4 +99,4 @@ Der OData V4-Service `ZUI_MERP_O4` stellt alle Master Data-Entitäten für die N
 ---
 
 ## 📄 Zugehörige Dokumentation
-- 📘 [Architecture & Technical Design Specifications (Spezifikationen zu Architektur und technischem Design)](docs/ARCHITECTURE.md)
+- 📘 [Architecture & Technical Design Specifications](docs/Architecture.md)
