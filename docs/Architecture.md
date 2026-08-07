@@ -1,6 +1,6 @@
 # Mini ERP – Architecture & Technical Design
 
-[⬅ Back to README.md](../README.md) | [English](ARCHITECTURE.md) | [Deutsch](ARCHITECTURE.de.md) | [Українська](ARCHITECTURE.uk.md)
+[⬅ Back to README.md](../README.md) | [English](Architecture.md) | [Deutsch](Architecture.de.md) | [Українська](Architecture.ua.md)
 
 ## 1. Domain Data Model
 
