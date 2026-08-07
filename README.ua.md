@@ -19,7 +19,7 @@ Mini ERP — це демонстраційна ERP-система, розроб�
 
 Застосунок є портфоліо-проєктом, що демонструє готову до хмари (cloud-ready) розробку на ABAP, суворе розділення шарів архітектури та корпоративні шаблони проєктування (enterprise design patterns).
 
-Детальна технічна архітектура та специфікації доменної моделі доступні в [Architecture & Technical Design Documentation (Документація з архітектури та технічного дизайну)](docs/ARCHITECTURE.md).
+Детальна технічна архітектура та специфікації доменної моделі доступні в [Architecture & Technical Design Specifications](docs/Architecture.md).
 
 ---
 
@@ -99,4 +99,4 @@ Mini ERP — це демонстраційна ERP-система, розроб�
 ---
 
 ## 📄 Пов'язана документація
-- 📘 [Architecture & Technical Design Specifications (Специфікації архітектури та технічного дизайну)](docs/ARCHITECTURE.md)
+- 📘 [Architecture & Technical Design Specifications](docs/Architecture.md)
