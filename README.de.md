@@ -19,7 +19,7 @@ Das Projekt implementiert einen vereinfachten Einkaufs-, Lager- und Vertriebspro
 
 Die Anwendung dient als Portfolio-Projekt zur Demonstration einer cloudfähigen ABAP-Entwicklung, strikter Schichtentrennung und Best-Practice-Entwurfsmustern (Enterprise Design Patterns).
 
-Detaillierte technische Architektur- und Domänenmodell-Spezifikationen finden Sie in der [Architecture & Technical Design Documentation](docs/Architecture.md).
+Detaillierte technische Architektur- und Domänenmodell-Spezifikationen finden Sie in der [Architektur & Technisches Design](docs/Architecture.de.md).
 
 ---
 
@@ -99,4 +99,4 @@ Der OData V4-Service `ZUI_MERP_O4` stellt alle Master Data-Entitäten für die N
 ---
 
 ## 📄 Zugehörige Dokumentation
-- 📘 [Architecture & Technical Design Specifications](docs/Architecture.md)
+- 📘 [Architektur & Technisches Design](docs/Architecture.de.md)
