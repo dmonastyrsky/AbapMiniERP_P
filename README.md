@@ -17,7 +17,7 @@ The project implements a simplified procurement, inventory, and sales process wh
 
 The application serves as a portfolio project demonstrating cloud-ready ABAP development, strict layer separation, and enterprise design patterns.
 
-Detailed technical architecture and domain model specifications are available in the [Architecture & Technical Design Documentation](docs/ARCHITECTURE.md).
+Detailed technical architecture and domain model specifications are available in the [Architecture & Technical Design Documentation](docs/Architecture.md).
 
 ---
 
@@ -97,4 +97,4 @@ The OData V4 service `ZUI_MERP_O4` exposes all Master Data entities for SAP Fior
 ---
 
 ## 📄 Related Documentation
-- 📘 [Architecture & Technical Design Specifications](docs/ARCHITECTURE.md)
+- 📘 [Architecture & Technical Design Specifications](docs/Architecture.md)
