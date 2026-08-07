@@ -1,5 +1,7 @@
 # Mini ERP – Architecture & Technical Design
 
+[⬅ Back to README.md](../README.md) | [English](docs/ARCHITECTURE.md) | [Deutsch](docs/ARCHITECTURE.de.md) | [Українська](docs/ARCHITECTURE.uk.md)
+
 ## 1. Domain Data Model
 
 The domain architecture consists of 6 Master Data Business Objects and 4 Transactional Document types.
