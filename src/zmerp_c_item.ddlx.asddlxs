@@ -1,0 +1,96 @@
+@Metadata.layer: #CUSTOMER
+
+@UI.headerInfo: {
+  typeName: 'Item',
+  typeNamePlural: 'Items',
+  title: { value: 'Description' },
+  description: { value: 'ItemCode' }
+}
+
+@UI.presentationVariant: [{
+  sortOrder: [{ by: 'ItemCode', direction: #ASC }]
+}]
+
+annotate view ZMERP_C_ITEM with
+{
+  @UI.facet: [
+    {
+      id: 'GeneralHeaderSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      label: 'General Information',
+      targetQualifier: 'GeneralGroup',
+      position: 10
+    },
+    {
+      id: 'AdminHeaderSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      label: 'Administrative Data',
+      targetQualifier: 'AdminGroup',
+      position: 20,
+      hidden: true
+    }
+  ]
+
+  @UI.textArrangement: #TEXT_SEPARATE
+  @UI.lineItem: [{ position: 10, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'GeneralGroup', position: 10 }]
+  @UI.selectionField: [{ position: 10 }]
+  ItemCode;
+
+  @UI.lineItem: [{ position: 20, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'GeneralGroup', position: 20 }]
+  @UI.selectionField: [{ position: 20 }]
+  Description;
+
+  @UI.lineItem: [{ position: 22, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'GeneralGroup', position: 22 }]
+  @UI.selectionField: [{ position: 22 }]
+  Article;
+
+  @EndUserText.label: 'Item Type'
+  @UI.textArrangement: #TEXT_ONLY
+  @UI.lineItem: [{ position: 25, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'GeneralGroup', position: 25 }]
+  @UI.selectionField: [{ position: 25 }]
+  ItemTypeCode;
+
+  @EndUserText.label: 'Item Group'
+  @UI.textArrangement: #TEXT_FIRST
+  @UI.lineItem: [{ position: 30, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'GeneralGroup', position: 30 }]
+  @UI.selectionField: [{ position: 30 }]
+  ItemGroupCode;
+
+  @EndUserText.label: 'Default VAT Code'
+  @UI.textArrangement: #TEXT_ONLY
+  @UI.lineItem: [{ position: 40, importance: #MEDIUM }]
+  @UI.fieldGroup: [{ qualifier: 'GeneralGroup', position: 40 }]
+  DefaultVatCode;
+
+  @EndUserText.label: 'Base UoM'
+  @UI.lineItem: [{ position: 50, importance: #MEDIUM }]
+  @UI.fieldGroup: [{ qualifier: 'GeneralGroup', position: 50 }]
+  BaseUnitOfMeasure;
+  
+  @EndUserText.label: 'Blocked'
+  @UI.lineItem: [{ position: 60, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'GeneralGroup', position: 60 }]
+  IsBlocked;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 10 }]
+  CreatedBy;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 20 }]
+  CreatedAt;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 30 }]
+  LocalLastChangedBy;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 40 }]
+  LocalLastChangedAt;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 50 }]
+  LastChangedAt;
+}

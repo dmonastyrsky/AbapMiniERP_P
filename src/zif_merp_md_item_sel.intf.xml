@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_INTF" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <VSEOINTERF>
+    <CLSNAME>ZIF_MERP_MD_ITEM_SEL</CLSNAME>
+    <LANGU>E</LANGU>
+    <DESCRIPT>Master Data Selector for Item</DESCRIPT>
+    <EXPOSURE>2</EXPOSURE>
+    <STATE>1</STATE>
+    <UNICODE>X</UNICODE>
+   </VSEOINTERF>
+   <DESCRIPTIONS>
+    <SEOCOMPOTX>
+     <CLSNAME>ZIF_MERP_MD_ITEM_SEL</CLSNAME>
+     <CMPNAME>READ_ITEM</CMPNAME>
+     <LANGU>E</LANGU>
+     <DESCRIPT>Reads master data for a single item</DESCRIPT>
+    </SEOCOMPOTX>
+    <SEOCOMPOTX>
+     <CLSNAME>ZIF_MERP_MD_ITEM_SEL</CLSNAME>
+     <CMPNAME>READ_ITEMS</CMPNAME>
+     <LANGU>E</LANGU>
+     <DESCRIPT>Reads master data for a list of items</DESCRIPT>
+    </SEOCOMPOTX>
+    <SEOCOMPOTX>
+     <CLSNAME>ZIF_MERP_MD_ITEM_SEL</CLSNAME>
+     <CMPNAME>VALIDATE_ITEMS</CMPNAME>
+     <LANGU>E</LANGU>
+     <DESCRIPT>Validates item codes and returns missing/invalid keys</DESCRIPT>
+    </SEOCOMPOTX>
+   </DESCRIPTIONS>
+  </asx:values>
+ </asx:abap>
+</abapGit>

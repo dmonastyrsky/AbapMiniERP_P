@@ -1,0 +1,59 @@
+projection implementation in class ZBP_MERP_C_PURCHASEORDER unique;
+strict ( 2 );
+extensible;
+use draft;
+use side effects;
+
+define behavior for ZMERP_C_PURCHASEORDER alias PurchaseOrder
+extensible
+use etag
+{
+  use create;
+  use update;
+  use delete;
+
+  use action releaseDocument;
+  use action cancelDocument;
+
+  use action Edit;
+  use action Activate;
+  use action Discard;
+  use action Resume;
+  use action Prepare;
+
+  use association _Items { create; with draft; }
+
+  side effects
+  {
+    field CompanyCode affects field CurrencyCode, field WarehouseCode, entity _Items, messages;
+    field CurrencyCode affects entity _Items, messages;
+    entity _Items affects field TotalNetAmount, field TotalGrossAmount, entity _Items, messages;
+
+    field BusinessPartnerCode affects messages;
+    field WarehouseCode affects messages;
+
+    field DocumentDate affects field PostingDate, field DeliveryDate, messages;
+    field PostingDate affects messages;
+    field DeliveryDate affects messages;
+  }
+}
+
+define behavior for ZMERP_C_PURCHASEORDERITM alias PurchaseOrderItem
+extensible
+use etag
+{
+  use update;
+  use delete;
+
+  use association _PurchaseOrder { with draft; }
+
+  side effects
+  {
+
+    field ItemCode affects field UnitOfMeasure, field VatCode, field VatAmount, field GrossAmount, messages;
+    field Quantity affects field NetAmount, field VatAmount, field GrossAmount, messages;
+    field Price affects field NetAmount, field VatAmount, field GrossAmount, messages;
+    field VatCode affects field VatAmount, field GrossAmount, messages;
+  }
+
+}

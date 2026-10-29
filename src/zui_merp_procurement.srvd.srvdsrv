@@ -1,0 +1,18 @@
+@EndUserText: {
+  label: 'Service Definition for Procurement UI'
+}
+@ObjectModel: {
+  leadingEntity: {
+    name: 'ZMERP_C_PURCHASEORDER'
+  }
+}
+define service ZUI_MERP_PROCUREMENT
+  provider contracts odata_v4_ui {
+  expose ZMERP_C_PURCHASEORDER    as PurchaseOrder;
+  expose ZMERP_C_PURCHASEORDERITM as PurchaseOrderItem;
+  expose ZMERP_C_COMPANY_CODE     as CompanyCode;
+  expose ZMERP_C_WAREHOUSE        as Warehouse;
+  expose ZMERP_C_VAT_RATE         as VatRate;
+  expose ZMERP_C_ITEM             as Item;
+  expose ZMERP_C_BUS_PARTNER      as BusinessPartner;
+}

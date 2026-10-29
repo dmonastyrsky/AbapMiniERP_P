@@ -1,0 +1,95 @@
+@Metadata.layer: #CUSTOMER
+
+@UI.headerInfo: {
+  typeName: 'Company Code',
+  typeNamePlural: 'Company Codes',
+  title: { value: 'CompanyName' },
+  description: { value: 'CompanyCode' }
+}
+
+@UI.presentationVariant: [{
+  sortOrder: [{ by: 'CompanyCode', direction: #ASC }]
+}]
+
+annotate view ZMERP_C_COMPANY_CODE with
+{
+  @UI.facet: [
+    {
+      id: 'GeneralInformationSection',
+      purpose: #STANDARD,
+      type: #COLLECTION,
+      label: 'General Information',
+      position: 10
+    },
+    {
+      id: 'BasicGroupSubSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      parentId: 'GeneralInformationSection',
+      targetQualifier: 'BasicGroup',
+      position: 10
+    },
+    {
+      id: 'OrgGroupSubSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      parentId: 'GeneralInformationSection',
+      targetQualifier: 'OrgGroup',
+      position: 20
+    },
+    {
+      id: 'AdminHeaderSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      label: 'Administrative Data',
+      targetQualifier: 'AdminGroup',
+      position: 20,
+      hidden: true
+    }
+  ]
+
+  @UI.textArrangement: #TEXT_SEPARATE
+  @UI.lineItem: [{ position: 10, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'BasicGroup', position: 10 }]
+  @UI.selectionField: [{ position: 10 }]
+  CompanyCode;
+
+  @UI.lineItem: [{ position: 20, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'BasicGroup', position: 20 }]
+  @UI.selectionField: [{ position: 20 }]
+  CompanyName;
+  
+  @UI.lineItem: [{ position: 25, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'BasicGroup', position: 30 }]
+  CompanyPrefix;
+
+  @EndUserText.label: 'Currency'
+  @UI.lineItem: [{ position: 30, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'OrgGroup', position: 10 }]
+  CurrencyCode;
+
+  @EndUserText.label: 'Country'
+  @UI.textArrangement: #TEXT_FIRST
+  @UI.lineItem: [{ position: 40, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'OrgGroup', position: 20 }]
+  Country;
+  
+  @UI.lineItem: [{ position: 50, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'OrgGroup', position: 30 }]
+  IsBlocked;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 10 }]
+  CreatedBy;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 20 }]
+  CreatedAt;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 30 }]
+  LocalLastChangedBy;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 40 }]
+  LocalLastChangedAt;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 50 }]
+  LastChangedAt;
+}

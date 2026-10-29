@@ -1,0 +1,128 @@
+@Metadata.layer: #CUSTOMER
+
+@UI.headerInfo: {
+  typeName: 'Purchase Order Item',
+  typeNamePlural: 'Purchase Order Items',
+  title: { value: 'ItemNo' },
+  description: { value: 'ItemCode' }
+}
+
+@UI.presentationVariant: [{
+  sortOrder: [{ by: 'ItemNo', direction: #ASC }]
+}]
+
+annotate view ZMERP_C_PURCHASEORDERITM with
+{
+  @UI.facet: [
+    {
+      id: 'ItemDataSection',
+      purpose: #STANDARD,
+      type: #COLLECTION,
+      label: 'Item Details',
+      position: 10
+    },
+    {
+      id: 'ItemGeneralSubSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      parentId: 'ItemDataSection',
+      label: 'General Information',
+      targetQualifier: 'ItemGeneralGroup',
+      position: 10
+    },
+    {
+      id: 'PricingSubSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      parentId: 'ItemDataSection',
+      label: 'Pricing & Taxes',
+      targetQualifier: 'PricingGroup',
+      position: 20
+    },
+    {
+      id: 'AmountsSubSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      parentId: 'ItemDataSection',
+      label: 'Calculated Amounts',
+      targetQualifier: 'AmountsGroup',
+      position: 30
+    },
+    {
+      id: 'AdminItemSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      label: 'Administrative Data',
+      targetQualifier: 'AdminGroup',
+      position: 20,
+      hidden: true
+    }
+  ]
+
+  @UI.hidden: true
+  ItemUUID;
+
+  @UI.hidden: true
+  HeaderUUID;
+
+  /* ---------- Column 1: General Information ---------- */
+  @UI.lineItem: [{ position: 10, importance: #HIGH }]
+  ItemNo;
+
+  @UI.lineItem: [{ position: 20, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'ItemGeneralGroup', position: 20 }]
+  ItemCode;
+
+  @UI.lineItem: [{ position: 30, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'ItemGeneralGroup', position: 30 }]
+  Quantity;
+
+  /* ---------- Column 2: Pricing & Taxes ---------- */
+  @UI.lineItem: [{ position: 50, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'PricingGroup', position: 10 }]
+  Price;
+
+  @UI.lineItem: [{ position: 70, importance: #MEDIUM }]
+  @UI.fieldGroup: [{ qualifier: 'PricingGroup', position: 20 }]
+  VatCode;
+
+  /* ---------- Column 3: Calculated Amounts ---------- */
+  @UI.lineItem: [{ position: 60, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'AmountsGroup', position: 10 }]
+  NetAmount;
+
+  @UI.lineItem: [{ position: 80, importance: #MEDIUM }]
+  @UI.fieldGroup: [{ qualifier: 'AmountsGroup', position: 20 }]
+  VatAmount;
+
+  @UI.lineItem: [{ position: 90, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'AmountsGroup', position: 30 }]
+  GrossAmount;
+
+  @UI.lineItem: [{ position: 100, importance: #MEDIUM }]
+  @UI.fieldGroup: [{ qualifier: 'AmountsGroup', position: 40 }]
+  DeliveryCompleted;
+
+  /* ---------- Hidden Fields to Prevent Duplication ---------- */
+  @UI.hidden: true
+  UnitOfMeasure;
+
+  @UI.hidden: true
+  CurrencyCode;
+
+  /* ---------- Admin ---------- */
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 10 }]
+  CreatedBy;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 20 }]
+  CreatedAt;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 30 }]
+  LocalLastChangedBy;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 40 }]
+  LocalLastChangedAt;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 50 }]
+  LastChangedAt;
+}

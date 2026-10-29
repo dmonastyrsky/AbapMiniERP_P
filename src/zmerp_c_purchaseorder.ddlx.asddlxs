@@ -1,0 +1,164 @@
+@Metadata.layer: #CUSTOMER
+
+@UI.headerInfo: {
+  typeName: 'Purchase Order',
+  typeNamePlural: 'Purchase Orders',
+  title: { value: 'DocumentNumber' },
+  description: { value: 'StatusDescription' }
+}
+
+@UI.presentationVariant: [{
+  sortOrder: [{ by: 'DocumentNumber', direction: #DESC }]
+}]
+
+annotate view ZMERP_C_PURCHASEORDER with
+{
+  @UI.facet: [
+    {
+      id: 'GeneralSection',
+      purpose: #STANDARD,
+      type: #COLLECTION,
+      label: 'General Information',
+      position: 10
+    },
+    {
+      id: 'OrgGroupSubSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      parentId: 'GeneralSection',
+      targetQualifier: 'OrgGroup',
+      position: 10
+    },
+    {
+      id: 'PartnerGroupSubSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      parentId: 'GeneralSection',
+      targetQualifier: 'PartnerGroup',
+      position: 20
+    },
+    {
+      id: 'DatesGroupSubSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      parentId: 'GeneralSection',
+      targetQualifier: 'DatesGroup',
+      position: 30
+    },
+    {
+      id: 'TotalsGroupSubSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      parentId: 'GeneralSection',
+      targetQualifier: 'TotalsGroup',
+      position: 40
+    },
+    {
+      id: 'ItemsSection',
+      purpose: #STANDARD,
+      type: #LINEITEM_REFERENCE,
+      label: 'Line Items',
+      targetElement: '_Items',
+      position: 20
+    },
+    {
+      id: 'AdminHeaderSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      label: 'Administrative Data',
+      targetQualifier: 'AdminGroup',
+      position: 30,
+      hidden: true
+    }
+  ]
+
+  @UI.hidden: true
+  DocumentUUID;
+
+  @UI.identification: [
+    { type: #FOR_ACTION, dataAction: 'releaseDocument', label: 'Release', position: 10 },
+    { type: #FOR_ACTION, dataAction: 'cancelDocument',  label: 'Cancel',  position: 20 }
+  ]
+  @UI.lineItem: [
+    { position: 10, importance: #HIGH },
+    { type: #FOR_ACTION, dataAction: 'releaseDocument', label: 'Release' },
+    { type: #FOR_ACTION, dataAction: 'cancelDocument',  label: 'Cancel' }
+  ]
+  @UI.selectionField: [{ position: 10 }]
+  DocumentNumber;
+
+  /* ---------- Column 1: Organization ---------- */
+  @UI.lineItem: [{ position: 50, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'OrgGroup', position: 10 }]
+  @UI.selectionField: [{ position: 40 }]
+  CompanyCode;
+
+  @UI.lineItem: [{ position: 60, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'OrgGroup', position: 20 }]
+  @UI.selectionField: [{ position: 50 }]
+  WarehouseCode;
+
+  @UI.fieldGroup: [{ qualifier: 'OrgGroup', position: 30 }]
+  CurrencyCode;
+
+  /* ---------- Column 2: Supplier ---------- */
+  @UI.lineItem: [{ position: 70, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'PartnerGroup', position: 10 }]
+  @UI.selectionField: [{ position: 60 }]
+  BusinessPartnerCode;
+
+  @UI.lineItem: [{ position: 75, importance: #MEDIUM }]
+  @UI.fieldGroup: [{ qualifier: 'PartnerGroup', position: 20 }]
+  SupplierReference;
+
+  @UI.fieldGroup: [{ qualifier: 'PartnerGroup', position: 30 }]
+  ResponsiblePerson;
+
+  /* ---------- Column 3: Dates ---------- */
+  @UI.lineItem: [{ position: 30, importance: #MEDIUM }]
+  @UI.fieldGroup: [{ qualifier: 'DatesGroup', position: 10 }]
+  @UI.selectionField: [{ position: 30 }]
+  DocumentDate;
+
+  @UI.lineItem: [{ position: 40, importance: #MEDIUM }]
+  @UI.fieldGroup: [{ qualifier: 'DatesGroup', position: 20 }]
+  PostingDate;
+
+  @UI.lineItem: [{ position: 78, importance: #MEDIUM }]
+  @UI.fieldGroup: [{ qualifier: 'DatesGroup', position: 30 }]
+  DeliveryDate;
+
+  /* ---------- Column 4: Totals & Remarks ---------- */
+  @UI.lineItem: [{ position: 80, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'TotalsGroup', position: 10 }]
+  TotalNetAmount;
+
+  @UI.lineItem: [{ position: 90, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'TotalsGroup', position: 20 }]
+  TotalGrossAmount;
+
+  @UI.lineItem: [{ position: 100, importance: #LOW }]
+  @UI.fieldGroup: [{ qualifier: 'TotalsGroup', position: 30 }]
+  Remarks;
+
+  /* ---------- Status Handling ---------- */
+  @UI.lineItem: [{ position: 20, importance: #HIGH }]
+  @UI.selectionField: [{ position: 20 }]
+  Status;
+
+  /* ---------- Admin ---------- */
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 10 }]
+  CreatedBy;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 20 }]
+  CreatedAt;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 30 }]
+  LocalLastChangedBy;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 40 }]
+  LocalLastChangedAt;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 50 }]
+  LastChangedAt;
+}

@@ -1,0 +1,6 @@
+@EndUserText.label: 'ZMERP_C_WAREHOUSE'
+@MappingRole: true
+define role ZMERP_C_WAREHOUSE {
+  grant select on ZMERP_C_WAREHOUSE
+  where INHERITING CONDITIONS FROM ENTITY ZMERP_R_WAREHOUSE;
+}
