@@ -30,7 +30,7 @@ Mini ERP — це демонстраційна ERP-система, розроб�
 - **Модель програмування:** SAP RESTful Application Programming Model (RAP)
 - **Моделювання даних:** ABAP Core Data Services / CDS View Entities
 - **Персистентність:** Transparent Tables з підтримкою RAP Draft (Чернеток RAP)
-- **Сервіси:** OData V4 UI Services
+- **Сервіси:** OData V4 UI Services (`ZUI_MERP_O4`, `ZUI_MERP_PROCUREMENT_O4`)
 - **UI-фреймворк:** SAP Fiori Elements
 - **Стандарт розробки:** SAP Clean Core / ABAP Cloud
 
@@ -94,9 +94,11 @@ Mini ERP — це демонстраційна ERP-система, розроб�
 
 ---
 
-## 5. Service Binding & UI Preview
+## 5. Service Bindings & UI Preview
 
-Сервіс OData V4 `ZUI_MERP_O4` відкриває всі сутності Master Data та Замовлень на закупівлю для використання у SAP Fiori Elements.
+Застосунок відкриває розділені OData V4 сервіси для використання у SAP Fiori Elements:
+- **Сервіс Основних даних (`ZUI_MERP_O4`):** Відкриває всі сутності Master Data (Організація, Склад, Бізнес-партнер, Групи товарів, Товари/Послуги, Ставки ПДВ).
+- **Сервіс Закупівель (`ZUI_MERP_PROCUREMENT_O4`):** Відкриває транзакційні сутності Закупівель (Заголовки та позиції замовлень на закупівлю).
 
 ---
 
@@ -112,9 +114,9 @@ Mini ERP — це демонстраційна ERP-система, розроб�
 
 1. Імпортуйте репозиторій у ваше середовище SAP BTP ABAP Environment за допомогою інструменту **abapGit** в Eclipse ADT.
 2. Активуйте CDS View Entities, Behavior Definitions та Service Bindings в ієрархічному порядку.
-3. Відкрийте Service Binding `ZUI_MERP_O4` і натисніть **Publish** (або **Unpublish / Publish**) для реєстрації локальної кінцевої точки OData V4.
+3. Відкрийте Service Bindings `ZUI_MERP_O4` та `ZUI_MERP_PROCUREMENT_O4` і натисніть **Publish** (або **Unpublish / Publish**) для реєстрації локальних кінцевих точок OData V4.
 4. Запустіть клас `ZCL_MERP_INITIAL_SETUP` в Eclipse ADT (`F9`) для заповнення початкових даних та синхронізації діапазонів номерів.
-5. Перегляньте роботу застосунків за допомогою Fiori Elements Preview в редакторі Service Binding.
+5. Перегляньте роботу застосунків за допомогою Fiori Elements Preview в будь-якому редакторі Service Binding.
 
 ---
 

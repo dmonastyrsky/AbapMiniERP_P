@@ -30,7 +30,7 @@ Detaillierte technische Architektur- und Domänenmodell-Spezifikationen finden S
 - **Programmiermodell:** SAP RESTful Application Programming Model (RAP)
 - **Datenmodellierung:** ABAP Core Data Services / CDS View Entities
 - **Persistenz:** Transparent Tables mit RAP Draft-Unterstützung
-- **Services:** OData V4 UI Services
+- **Services:** OData V4 UI Services (`ZUI_MERP_O4`, `ZUI_MERP_PROCUREMENT_O4`)
 - **UI-Framework:** SAP Fiori Elements
 - **Entwicklungsstandard:** SAP Clean Core / ABAP Cloud
 
@@ -94,9 +94,11 @@ Das Projekt ist in zwei Hauptphasen unterteilt.
 
 ---
 
-## 5. Service Binding & UI Preview
+## 5. Service Bindings & UI Preview
 
-Der OData V4-Service `ZUI_MERP_O4` stellt alle Stammdaten- und Bestellungs-Entitäten für die Nutzung durch SAP Fiori Elements bereit.
+Die Anwendung stellt entkoppelte OData V4-Services für die Nutzung durch SAP Fiori Elements bereit:
+- **Stammdaten-Service (`ZUI_MERP_O4`):** Stellt alle Stammdaten-Entitäten bereit (Unternehmen, Lager, Geschäftspartner, Produktgruppen, Produkte, MwSt.-Sätze).
+- **Einkaufs-Service (`ZUI_MERP_PROCUREMENT_O4`):** Stellt transaktionale Einkaufs-Entitäten bereit (Bestellköpfe und -positionen).
 
 ---
 
@@ -112,9 +114,9 @@ Der OData V4-Service `ZUI_MERP_O4` stellt alle Stammdaten- und Bestellungs-Entit
 
 1. Importieren Sie das Repository über **abapGit** in Eclipse ADT in Ihre SAP BTP ABAP-Umgebung.
 2. Aktivieren Sie CDS View Entities, Behavior Definitions und Service Bindings in hierarchischer Reihenfolge.
-3. Öffnen Sie das Service Binding `ZUI_MERP_O4` und klicken Sie auf **Publish** (oder **Unpublish / Publish**), um den lokalen OData V4-Endpunkt zu registrieren.
+3. Öffnen Sie die Service Bindings `ZUI_MERP_O4` und `ZUI_MERP_PROCUREMENT_O4` und klicken Sie jeweils auf **Publish** (oder **Unpublish / Publish**), um die lokalen OData V4-Endpunkte zu registrieren.
 4. Führen Sie die Klasse `ZCL_MERP_INITIAL_SETUP` in Eclipse ADT (`F9`) aus, um die Initialdaten zu laden und die Nummernkreise zu synchronisieren.
-5. Testen Sie die Anwendungen über die Fiori Elements-Vorschau im Service-Binding-Editor.
+5. Testen Sie die Anwendungen über die Fiori Elements-Vorschau in einem der Service-Binding-Editoren.
 
 ---
 

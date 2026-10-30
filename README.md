@@ -30,7 +30,7 @@ Detailed technical architecture and domain model specifications are available in
 - **Programming Model:** SAP RESTful Application Programming Model (RAP)
 - **Data Modeling:** ABAP Core Data Services (CDS View Entities)
 - **Persistence:** Transparent Tables with RAP Draft Support
-- **Services:** OData V4 UI Services
+- **Services:** OData V4 UI Services (`ZUI_MERP_O4`, `ZUI_MERP_PROCUREMENT_O4`)
 - **UI Framework:** SAP Fiori Elements
 - **Development Standard:** SAP Clean Core / ABAP Cloud
 
@@ -94,9 +94,11 @@ The project is structured into two main phases.
 
 ---
 
-## 5. Service Binding & UI Preview
+## 5. Service Bindings & UI Preview
 
-The OData V4 service `ZUI_MERP_O4` exposes all Master Data and Purchase Order entities for SAP Fiori Elements consumption.
+The application exposes decoupled OData V4 services for SAP Fiori Elements consumption:
+- **Master Data Service (`ZUI_MERP_O4`):** Exposes all Master Data entities (Company Code, Warehouse, Business Partner, Item Group, Item, VAT Rate).
+- **Procurement Service (`ZUI_MERP_PROCUREMENT_O4`):** Exposes transactional Procurement entities (Purchase Orders and Line Items).
 
 ---
 
@@ -112,9 +114,9 @@ The OData V4 service `ZUI_MERP_O4` exposes all Master Data and Purchase Order en
 
 1. Import the repository into your SAP BTP ABAP Environment using **abapGit** in Eclipse ADT.
 2. Activate CDS View Entities, Behavior Definitions, and Service Bindings in hierarchical order.
-3. Open Service Binding `ZUI_MERP_O4` and click **Publish** (or **Unpublish / Publish**) to register the local OData V4 endpoint.
+3. Open Service Bindings `ZUI_MERP_O4` and `ZUI_MERP_PROCUREMENT_O4`, then click **Publish** (or **Unpublish / Publish**) to register the local OData V4 endpoints.
 4. Run class `ZCL_MERP_INITIAL_SETUP` in Eclipse ADT (`F9`) to populate seed data and synchronize Number Ranges.
-5. Preview applications via Fiori Elements Preview in the Service Binding editor.
+5. Preview applications via Fiori Elements Preview in either Service Binding editor.
 
 ---
 
