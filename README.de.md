@@ -5,7 +5,7 @@
 [![SAP ABAP Cloud](https://img.shields.io/badge/SAP-ABAP%20Cloud-0FAAFF?style=flat-square&logo=sap)](https://www.sap.com)
 [![SAP RAP](https://img.shields.io/badge/Model-SAP%20RAP%20(Managed)-0073C6?style=flat-square)](https://help.sap.com)
 [![Clean Core](https://img.shields.io/badge/Architecture-Clean%20Core%20Compliant-green?style=flat-square)](#6-clean-core-prinzipien)
-[![Status](https://img.shields.io/badge/Status-Phase%201%20Complete%20%7C%20Phase%202%20PO%20Implemented-brightgreen?style=flat-square)](#3-implementierungsstatus-und-roadmap)
+[![Status](https://img.shields.io/badge/Status-Phase%201%20Complete%20%7C%20PO%20Implemented-brightgreen?style=flat-square)](#3-implementierungsstatus-und-roadmap)
 
 **Version:** 1.0 (MVP)
 
@@ -15,7 +15,7 @@
 
 Mini ERP ist eine Demonstrations-ERP-Anwendung, die mit dem SAP ABAP Cloud-Programmiermodell und dem SAP RESTful Application Programming Model (RAP) in der SAP BTP ABAP-Umgebung entwickelt wurde.
 
-Das Projekt implementiert einen vereinfachten Einkaufs-, Lager- und Vertriebsprozess und folgt dabei modernen SAP-Entwicklungspraktiken, einschließlich SAP Clean-Core-Prinzipien, RAP Business Objects, CDS View Entities, OData V4-Services und SAP Fiori Elements.
+Das Projekt implementiert ein vereinfachtes Einkaufs-, Lager- und Vertriebs-Domänenmodell und folgt dabei modernen SAP-Entwicklungspraktiken, einschließlich SAP Clean-Core-Prinzipien, RAP Business Objects, CDS View Entities, OData V4-Services und SAP Fiori Elements.
 
 Die Anwendung dient als Portfolio-Projekt zur Demonstration einer cloudfähigen ABAP-Entwicklung, strikter Schichtentrennung und Best-Practice-Entwurfsmustern.
 
@@ -49,9 +49,17 @@ Das Projekt ist in zwei Hauptphasen unterteilt.
 - **VAT Rate (MwSt.-Sätze):** Zentrale Engine für die Konfiguration und Pflege von Steuersätzen (Automatische Schlüsselvergabe).
 
 ### Phase 2: Transactional Engine & Inventory (Transaktions-Engine & Lagerhaltung) – In Arbeit
-- **Purchase Orders (Bestellungen) – Abgeschlossen:** Vollständiger Beschaffungsbeleg-Lebenszyklus (Neu, Genehmigt, In Lieferung, Abgeschlossen, Storniert) mit unternehmensbezogener Belegnummerierung, automatisierter Berechnung von Positionssummen und Beleggesamtsummen, Duplikatprüfung von Belegzeilen sowie interaktiven Echtzeit-Validierungen.
-- **Goods Receipts & Sales Engine:** Teilwareneingänge, Kundenaufträge und Warenausgänge.
-- **Dynamic Stock Calculation (Dynamische Bestandsberechnung):** Echtzeit-Lagerbestandsberechnung (`Bestand = Wareneingänge - Warenausgänge`), die dynamisch über CDS View Entities ohne persistente Bestandstabellen berechnet wird.
+
+#### Procurement (Einkauf)
+- **Purchase Orders (Bestellung) — Umgesetzt:** Vollständiger Beschaffungsbeleg-Lebenszyklus (Neu, Genehmigt, In Lieferung, Abgeschlossen, Storniert) mit unternehmensbezogener sequentieller Belegnummerierung, interaktiver Fehlerbehandlung in Echtzeit, Duplikatprüfung für Belegzeilen sowie automatisierter Berechnung von Positions- und Belegsummen.
+- **Goods Receipts (Wareneingang) — Geplant:** Künftige Implementierung zur Erfassung von Teil- und Voll-Wareneingängen zu Bestellungen.
+
+#### Sales (Vertrieb)
+- **Sales Orders (Kundenauftrag) — Geplant:** Künftige Implementierung für den Vertriebsbelegs-Lebenszyklus.
+- **Goods Issues (Warenausgang) — Geplant:** Künftige Implementierung zur Erfassung von Warenausgangslieferungen.
+
+#### Dynamic Stock Calculation — Geplant
+- Echtzeit-Lagerbestandsberechnung (`Bestand = Wareneingänge - Warenausgänge`), die dynamisch über CDS View Entities berechnet wird, sobald Wareneingänge und Warenausgänge umgesetzt sind.
 
 ---
 
@@ -73,10 +81,10 @@ Das Projekt ist in zwei Hauptphasen unterteilt.
 - **Soft Blocking:** Stammdatensätze verwenden ein `IsBlocked`-Flag, um die historische Datenintegrität anstelle von hartem Löschen zu wahren.
 - **Value Help-Filterung:** Alle operativen Value Help Views (`ZMERP_I_<ENTITY>_VH`) erzwingen `WHERE IsBlocked = ''`, um die Auswahl inaktiver Datensätze in nachgelagerten Belegen zu verhindern.
 
-### Automatisierte Berechnungen & Echtzeit-Validierung
-- **Belegberechnungs-Engine:** Automatisierte, Echtzeit-Berechnung finanzieller Positionsbeträge bei Änderungen von Menge, Preis oder Steuersatz sowie sofortige Aggregation der Beleg-Gesamtsummen auf Kopfebene.
-- **Interaktive Fehlerbehandlung:** Sofortiges Löschen und Hervorheben von Validierungsmeldungen direkt während der Benutzer Felder ausfüllt oder korrigiert, was eine reibungslose Benutzererfahrung gewährleistet.
-- **Duplikatserkennung:** Automatische Erkennung und Blockierung doppelt erfasster Produkte innerhalb desselben Belegs.
+### Bestellungs-Engine & Automatisierte Berechnungen
+- **Belegberechnungs-Engine (`ZCL_MERP_DOC_CALC`):** Automatisierte Echtzeit-Berechnung finanzieller Positionsbeträge bei Änderungen von Menge, Preis oder Steuersatz sowie sofortige Aggregation der Beleg-Gesamtsummen auf Kopfebene.
+- **Interaktive Fehlerbehandlung:** Sofortiges Löschen und Hervorheben von Validierungsmeldungen direkt während der Benutzer Felder ausfüllt oder korrigiert.
+- **Duplikatserkennung:** Automatische Erkennung und Blockierung doppelt erfasster Produkte innerhalb derselben Bestellung.
 
 ### Automatisiertes Initial-Setup (`ZCL_MERP_INITIAL_SETUP`)
 - Console-Runner-Klasse, die das Interface `IF_OO_ADT_CLASSRUN` implementiert.
@@ -88,7 +96,7 @@ Das Projekt ist in zwei Hauptphasen unterteilt.
 
 ## 5. Service Binding & UI Preview
 
-Der OData V4-Service `ZUI_MERP_O4` stellt alle Stammdaten-Entitäten für die Nutzung durch SAP Fiori Elements bereit.
+Der OData V4-Service `ZUI_MERP_O4` stellt alle Stammdaten- und Bestellungs-Entitäten für die Nutzung durch SAP Fiori Elements bereit.
 
 ---
 

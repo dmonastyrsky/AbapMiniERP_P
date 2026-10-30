@@ -5,7 +5,7 @@
 [![SAP ABAP Cloud](https://img.shields.io/badge/SAP-ABAP%20Cloud-0FAAFF?style=flat-square&logo=sap)](https://www.sap.com)
 [![SAP RAP](https://img.shields.io/badge/Model-SAP%20RAP%20(Managed)-0073C6?style=flat-square)](https://help.sap.com)
 [![Clean Core](https://img.shields.io/badge/Architecture-Clean%20Core%20Compliant-green?style=flat-square)](#6-clean-core-principles)
-[![Status](https://img.shields.io/badge/Status-Phase%201%20Complete%20%7C%20Phase%202%20PO%20Implemented-brightgreen?style=flat-square)](#3-implementation-status--roadmap)
+[![Status](https://img.shields.io/badge/Status-Phase%201%20Complete%20%7C%20PO%20Implemented-brightgreen?style=flat-square)](#3-implementation-status--roadmap)
 
 **Version:** 1.0 (MVP)
 
@@ -15,7 +15,7 @@
 
 Mini ERP is a demonstration ERP application developed using the SAP ABAP Cloud programming model and the SAP RESTful Application Programming Model (RAP) on SAP BTP ABAP Environment.
 
-The project implements a simplified procurement, inventory, and sales process while following modern SAP development practices, including SAP Clean Core principles, RAP Business Objects, CDS View Entities, OData V4 services, and SAP Fiori Elements.
+The project implements a simplified procurement, inventory, and sales domain model while following modern SAP development practices, including SAP Clean Core principles, RAP Business Objects, CDS View Entities, OData V4 services, and SAP Fiori Elements.
 
 The application serves as a portfolio project demonstrating cloud-ready ABAP development, strict layer separation, and enterprise design patterns.
 
@@ -49,9 +49,17 @@ The project is structured into two main phases.
 - **VAT Rate:** Central engine for tax percentage maintenance (Auto-generated Key).
 
 ### Phase 2: Transactional Engine & Inventory (In Progress)
-- **Purchase Orders (Completed):** Full procurement document lifecycle (New, Approved, In Delivery, Completed, Cancelled) featuring company-scoped document numbering, automated calculations of item amounts and document totals, duplicate line item checks, and real-time interactive validations.
-- **Goods Receipts & Sales Engine:** Partial receipts, Sales Orders, and Goods Issues.
-- **Dynamic Stock Calculation:** Real-time inventory calculation (`Stock = Receipts - Issues`) calculated dynamically via CDS View Entities without persistent stock tables.
+
+#### Procurement (Einkauf)
+- **Purchase Orders (Bestellung) — Implemented:** Complete procurement document lifecycle (New, Approved, In Delivery, Completed, Cancelled) featuring company-scoped sequential document numbering, real-time UI message handling, item duplicate checks, and automated calculation of line amounts and document header totals.
+- **Goods Receipts (Wareneingang) — Planned:** Future implementation for logging partial and full inventory receipts against Purchase Orders.
+
+#### Sales (Vertrieb)
+- **Sales Orders (Kundenauftrag) — Planned:** Future implementation for customer sales document lifecycle.
+- **Goods Issues (Warenausgang) — Planned:** Future implementation for logging outbound stock deliveries.
+
+#### Dynamic Stock Calculation — Planned
+- Real-time inventory calculation (`Stock = Receipts - Issues`) calculated dynamically via CDS View Entities once Goods Receipts and Goods Issues are implemented.
 
 ---
 
@@ -73,10 +81,10 @@ The project is structured into two main phases.
 - **Soft Blocking:** Master Data records use an `IsBlocked` flag to preserve historical data integrity instead of hard deletion.
 - **Value Help Filtering:** All operational Value Help Views (`ZMERP_I_<ENTITY>_VH`) enforce `WHERE IsBlocked = ''` to prevent selection of inactive records in downstream documents.
 
-### Automated Calculations & Real-Time Validation
-- **Document Calculation Engine:** Automated, real-time calculation of item-level financial amounts upon quantity, price, or tax rate changes, alongside instant aggregation of total document amounts at the header level.
-- **Interactive Error Handling:** Instant clearing and highlighting of validation messages directly as the user fills out or corrects fields, ensuring a smooth user experience.
-- **Duplicate Prevention:** Automatic detection and blocking of duplicate product entries within the same document.
+### Purchase Order Engine & Automated Calculations
+- **Document Calculation Engine (`ZCL_MERP_DOC_CALC`):** Automated, real-time calculation of item line amounts (Net, VAT, Gross) upon Quantity, Price, or VAT Code changes, alongside instant header totals aggregation.
+- **Interactive Error Handling:** Instant clearing and field-level highlighting of validation messages directly as the user inputs data.
+- **Duplicate Line Prevention:** Automatic detection and blocking of duplicate product lines within the same Purchase Order.
 
 ### Automated Initial Setup (`ZCL_MERP_INITIAL_SETUP`)
 - Console runner implementing `IF_OO_ADT_CLASSRUN`.
@@ -88,7 +96,7 @@ The project is structured into two main phases.
 
 ## 5. Service Binding & UI Preview
 
-The OData V4 service `ZUI_MERP_O4` exposes all Master Data entities for SAP Fiori Elements consumption.
+The OData V4 service `ZUI_MERP_O4` exposes all Master Data and Purchase Order entities for SAP Fiori Elements consumption.
 
 ---
 

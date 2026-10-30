@@ -4,9 +4,9 @@
 
 ## 1. Domain Data Model
 
-The domain architecture consists of 6 Master Data Business Objects and 4 Transactional Document types.
+The domain architecture is designed to support 6 Master Data Business Objects and 4 Transactional Document types.
 
-### Master Data Entities
+### Master Data Entities (Implemented)
 - **Company Code (`ZMERP_COMP_CODE`):** Represents an enterprise legal entity responsible for business transactions. Defines company name, country, and default currency.
 - **Warehouse (`ZMERP_WAREHOUSE`):** Represents a physical storage location. Each warehouse belongs to exactly one Company Code.
 - **Business Partner (`ZMERP_BUS_PART`):** Represents external counterparties. Supports Customer, Supplier, or combined roles. Shared across all Company Codes.
@@ -20,21 +20,15 @@ The domain architecture consists of 6 Master Data Business Objects and 4 Transac
 
 The system uses standardized prefixes, fixed-length formatting, and dedicated Number Range Objects across all entities:
 
-| Entity | Semantic Prefix | Pattern Example | Key Generation Strategy |
-|---|---|---|---|
-| **Company Code** | *None* | `1000` | Manual Input |
-| **Warehouse** | `WH` | `WH00001` | Early Numbering / Hybrid NRO + DB Max |
-| **Business Partner** | *None* | `00001` | Early Numbering / Hybrid NRO + DB Max |
-| **Item Group** | *None* | `00001` | Early Numbering / Hybrid NRO + DB Max |
-| **Item Master** | *None* | `00001` | Early Numbering / Hybrid NRO + DB Max |
-| **VAT Rate** | `V` | `V0001` | Early Numbering / Hybrid NRO + DB Max |
-| **Purchase Order** | *Company Prefix* | `1000000001` | Early/On-Save Numbering / Company-Scoped NRO |
-
-### Key Generation Logic Flow
-1. User creates a new entity (triggers RAP Early Numbering).
-2. Utility attempts to fetch next number from SAP NRO (`cl_numberrange_runtime`).
-3. If NRO is unconfigured or fails, fallback logic queries the database for `MAX(code)` across both Active and Draft tables.
-4. Number is incremented and formatted with leading zeros and pre-defined semantic prefix.
+| Entity | Semantic Prefix | Pattern Example | Key Generation Strategy | Status |
+|---|---|---|---|---|
+| **Company Code** | *None* | `1000` | Manual Input | Implemented |
+| **Warehouse** | `WH` | `WH00001` | Early Numbering / Hybrid NRO + DB Max | Implemented |
+| **Business Partner** | *None* | `00001` | Early Numbering / Hybrid NRO + DB Max | Implemented |
+| **Item Group** | *None* | `00001` | Early Numbering / Hybrid NRO + DB Max | Implemented |
+| **Item Master** | *None* | `00001` | Early Numbering / Hybrid NRO + DB Max | Implemented |
+| **VAT Rate** | `V` | `V0001` | Early Numbering / Hybrid NRO + DB Max | Implemented |
+| **Purchase Order** | *Company Prefix* | `1000000001` | Early/On-Save Numbering / Company-Scoped NRO | Implemented |
 
 ---
 
@@ -49,28 +43,34 @@ To avoid performance bottlenecks during multi-record deletions, the check uses a
 - **Key Deduplication:** Target keys from the RAP `keys` table are collected and deduplicated (`DELETE ADJACENT DUPLICATES`).
 - **Bulk SQL Dependency Scan:** A single `SELECT DISTINCT` query is executed against a dedicated CDS Usage View (e.g., `ZMERP_I_COMPANY_CODE_USAGE`) using an internal table JOIN (`INNER JOIN @lt_keys`).
 - **In-Memory Matching:** Identified dependencies are mapped back to individual records in memory via binary search (`LOOP AT ... WHERE`).
-- **RAP Fail & Message Reporting:** If dependencies exist, the record is flagged with `%fail-cause = if_abap_behv=>cause-dependency`, and a user-friendly error message (`ZCM_MERP_MESSAGES`) is returned to the UI, preventing the deletion.
+- **RAP Fail & Message Reporting:** If dependencies exist, the record is flagged with `%fail-cause = if_abap_behv=>cause-dependency`, and a user-friendly error message (`ZCM_MERP_MESSAGES`) is returned to the UI, preventing deletion.
 
 ### 3.2. Soft Blocking and Value Help Governance
 To deactivate Master Data entities without breaking historical transactional records, all 6 entities implement an `IsBlocked` (`ZMERP_IS_BLOCKED`) field:
 - **Data Preservation:** Blocked entities remain in the database for auditability and reporting.
-- **Selection Prevention:** All dedicated Value Help CDS View Entities (e.g., `ZMERP_I_COMPANY_CODE_VH`, `ZMERP_I_VAT_RATE_VH`) enforce an explicit condition `WHERE IsBlocked = ''`. This ensures blocked Master Data records cannot be selected in new transactional documents (PO, SO, Inventory Movements).
+- **Selection Prevention:** All dedicated Value Help CDS View Entities enforce an explicit condition `WHERE IsBlocked = ''`. This ensures blocked Master Data records cannot be selected in new transactional documents.
 
 ---
 
-## 4. Transactional Document Architecture (Phase 2)
+## 4. Transactional Document Architecture
 
-Transactional documents follow a Header (1) to Line Items (N) composition structure:
-- **Procurement Chain:** Purchase Order (`ZMERP_R_PURCHASEORDER`) -> Goods Receipt
-- **Sales Chain:** Sales Order -> Goods Issue
+The transactional document scope is structured across procurement and sales chains:
 
-### 4.1. Purchase Order Functional Architecture
+### Procurement (Procurement Chain)
+- **Purchase Order (`ZMERP_R_PURCHASEORDER`) — Implemented:** Header to Line Items composition structure handling procurement order creation and approval lifecycle.
+- **Goods Receipt — Planned:** Future document type for capturing physical receipts against Purchase Orders.
+
+### Sales (Sales Chain)
+- **Sales Order — Planned:** Future document type for managing customer sales orders.
+- **Goods Issue — Planned:** Future document type for capturing physical outbound stock deliveries.
+
+### 4.1. Purchase Order Functional Architecture (Implemented)
 
 #### Company-Scoped Sequential Numbering
 - **Context-Aware NRO Allocation:** Document numbers (`DocumentNumber`) are generated on save using Number Range Objects scoped to the specific `CompanyCode`, incorporating the company prefix for unique enterprise identification.
 
 #### Document Calculation Engine (`ZCL_MERP_DOC_CALC`)
-- **Item-Level Calculations:** Modifying `Quantity`, `Price`, or `VatCode` triggers automated recalculations of item financial amounts (`NetAmount`, `VatAmount`, `GrossAmount`) based on active tax percentages.
+- **Item-Level Calculations:** Modifying `Quantity`, `Price`, or `VatCode` triggers automated recalculations of item line financial amounts (`NetAmount`, `VatAmount`, `GrossAmount`) based on active tax percentages.
 - **Header Totals Aggregation:** Item-level changes immediately roll up to recalculate document-level totals (`TotalNetAmount`, `TotalGrossAmount`) across active and draft transactional instances.
 
 #### Validation & Message Handling
@@ -78,21 +78,18 @@ Transactional documents follow a Header (1) to Line Items (N) composition struct
 - **Duplicate Line Item Validation:** In-memory context evaluation prevents duplicate `ItemCode` entries across separate lines within the same document.
 - **Cross-Entity & Date Rules:** Enforces organizational consistency (warehouse alignment with company code, supplier role checks) and chronological date rules.
 
-### 4.2. Document Status Lifecycle
+### 4.2. Purchase Order Status Lifecycle
 - **New (`N`):** Editable draft or newly saved document.
 - **Approved (`A`):** Released document via `releaseDocument` action (requires at least 1 line item).
-- **In Delivery (`P`) / Completed (`C`):** Logistics execution lifecycle states.
-- **Cancelled (`X`):** Terminated document via `cancelDocument` action; excluded from downstream calculations.
+- **In Delivery (`P`) / Completed (`C`):** Logistical execution lifecycle states (to be updated by Goods Receipts).
+- **Cancelled (`X`):** Terminated document via `cancelDocument` action; excluded from downstream processing.
 
 ---
 
-## 5. Dynamic Inventory Calculation Concept
+## 5. Dynamic Inventory Calculation Concept (Design Target)
 
-Inventory balances are not statically stored in persistent tables. Current stock levels are calculated dynamically in real time from posted inventory movement documents:
+Lagerbestände (Inventory balances) will be calculated dynamically in real time from posted movement documents once the full transactional suite is complete:
 
 `Current Stock = Sum(Posted Goods Receipts) - Sum(Posted Goods Issues)`
 
-### Rules:
-- Tracked per Company Code + Warehouse + Item.
-- Excludes items where Item Type = Service (`S`).
-- Insufficient stock errors are enforced during the transition of Goods Issue documents to Posted status via RAP Validations on Save.
+*Note: This concept is planned for implementation alongside the Goods Receipt and Goods Issue modules in subsequent releases.*

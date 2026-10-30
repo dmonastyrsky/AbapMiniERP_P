@@ -4,9 +4,9 @@
 
 ## 1. Domain Data Model (Domänen-Datenmodell)
 
-Die Domänenarchitektur besteht aus 6 Master Data Business Objects und 4 Transactional Document types.
+Die Domänenarchitektur ist für 6 Master Data Business Objects und 4 Transactional Document types ausgelegt.
 
-### Master Data Entities (Stammdaten-Entitäten)
+### Master Data Entities (Stammdaten-Entitäten — Umgesetzt)
 - **Company Code / Buchungskreis (`ZMERP_COMP_CODE`):** Repräsentiert eine rechtliche Unternehmenseinheit, die für Geschäftstransaktionen verantwortlich ist. Definiert Firmenname, Land und Standardwährung.
 - **Warehouse / Lager (`ZMERP_WAREHOUSE`):** Repräsentiert einen physischen Lagerort. Jedes Lager gehört zu genau einem Buchungskreis.
 - **Business Partner / Geschäftspartner (`ZMERP_BUS_PART`):** Repräsentiert externe Vertragspartner. Unterstützt Kunde, Lieferant oder kombinierte Rollen. Wird über alle Buchungskreise hinweg gemeinsam genutzt.
@@ -20,21 +20,15 @@ Die Domänenarchitektur besteht aus 6 Master Data Business Objects und 4 Transac
 
 Das System verwendet standardisierte Präfixe, Formatierungen mit fester Länge und dedizierte Nummernkreisobjekte über alle Entitäten hinweg:
 
-| Entity (Entität) | Semantic Prefix (Semantisches Präfix) | Pattern Example (Musterbeispiel) | Key Generation Strategy (Schlüsselgenerierungsstrategie) |
-|---|---|---|---|
-| **Company Code** (Buchungskreis) | *Keines* | `1000` | Manual Input (Manuelle Eingabe) |
-| **Warehouse** (Lager) | `WH` | `WH00001` | Early Numbering / Hybrides NRO + DB Max |
-| **Business Partner** (Geschäftspartner) | *Keines* | `00001` | Early Numbering / Hybrides NRO + DB Max |
-| **Item Group** (Warengruppe) | *Keines* | `00001` | Early Numbering / Hybrides NRO + DB Max |
-| **Item Master** (Artikelstamm) | *Keines* | `00001` | Early Numbering / Hybrides NRO + DB Max |
-| **VAT Rate** (Umsatzsteuersatz) | `V` | `V0001` | Early Numbering / Hybrides NRO + DB Max |
-| **Purchase Order** (Bestellung) | *Unternehmenspräfix* | `1000000001` | Early-/On-Save-Nummerierung / Unternehmensbezogenes NRO |
-
-### Key Generation Logic Flow (Logikablauf der Schlüsselgenerierung)
-1. Der Benutzer legt eine neue Entität an (löst RAP Early Numbering aus).
-2. Das Utility versucht, die nächste Nummer aus dem SAP NRO (`cl_numberrange_runtime`) abzurufen.
-3. Wenn das NRO nicht konfiguriert ist oder fehlschlägt, fragt die Fallback-Logik die Datenbank nach dem Maximalwert `MAX(code)` in aktiven Tabellen und Entwurfstabellen ab.
-4. Die Nummer wird hochgezählt und mit führenden Nullen sowie dem vordefinierten semantischen Präfix formatiert.
+| Entity (Entität) | Semantic Prefix (Semantisches Präfix) | Pattern Example (Musterbeispiel) | Key Generation Strategy (Schlüsselgenerierungsstrategie) | Status |
+|---|---|---|---|---|
+| **Company Code** (Buchungskreis) | *Keines* | `1000` | Manual Input (Manuelle Eingabe) | Umgesetzt |
+| **Warehouse** (Lager) | `WH` | `WH00001` | Early Numbering / Hybrides NRO + DB Max | Umgesetzt |
+| **Business Partner** (Geschäftspartner) | *Keines* | `00001` | Early Numbering / Hybrides NRO + DB Max | Umgesetzt |
+| **Item Group** (Warengruppe) | *Keines* | `00001` | Early Numbering / Hybrides NRO + DB Max | Umgesetzt |
+| **Item Master** (Artikelstamm) | *Keines* | `00001` | Early Numbering / Hybrides NRO + DB Max | Umgesetzt |
+| **VAT Rate** (Umsatzsteuersatz) | `V` | `V0001` | Early Numbering / Hybrides NRO + DB Max | Umgesetzt |
+| **Purchase Order** (Bestellung) | *Unternehmenspräfix* | `1000000001` | Early-/On-Save-Nummerierung / Unternehmensbezogenes NRO | Umgesetzt |
 
 ---
 
@@ -58,13 +52,19 @@ Um Stammdaten-Entitäten zu deaktivieren, ohne historische Transaktionsdaten zu 
 
 ---
 
-## 4. Transactional Document Architecture (Transaktionsbeleg-Architektur – Phase 2)
+## 4. Transactional Document Architecture (Transaktionsbeleg-Architektur)
 
-Transaktionsbelege folgen einer Kompositionsstruktur von Kopf (1) zu Positionen (N):
-- **Procurement Chain (Beschaffungskette):** Purchase Order (`ZMERP_R_PURCHASEORDER`) -> Goods Receipt
-- **Sales Chain (Vertriebskette):** Sales Order -> Goods Issue
+Der Bereich der Transaktionsbelege gliedert sich in Beschaffungs- und Vertriebsketten:
 
-### 4.1. Purchase Order Funktionale Architektur
+### Procurement (Beschaffungskette)
+- **Purchase Order (`ZMERP_R_PURCHASEORDER`) — Umgesetzt:** Kompositionsstruktur von Kopf zu Positionen zur Erstellung und Genehmigung von Bestellungen.
+- **Goods Receipt (Wareneingang) — Geplant:** Künftiger Belegtyp zur Erfassung physischer Wareneingänge zu Bestellungen.
+
+### Sales (Vertriebskette)
+- **Sales Order (Kundenauftrag) — Geplant:** Künftiger Belegtyp zur Verwaltung von Kundenaufträgen.
+- **Goods Issue (Warenausgang) — Geplant:** Künftiger Belegtyp zur Erfassung physischer Warenausgangslieferungen.
+
+### 4.1. Purchase Order Funktionale Architektur (Umgesetzt)
 
 #### Unternehmensbezogene sequentielle Nummerierung (Company-Scoped Numbering)
 - **Kontextsensitive NRO-Zuweisung:** Belegnummern (`DocumentNumber`) werden beim Speichern über Nummernkreisobjekte generiert, die auf den spezifischen Buchungskreis (`CompanyCode`) zugeschnitten sind, wobei das Firmenpräfix für eine eindeutige Unternehmensidentifikation integriert wird.
@@ -76,23 +76,20 @@ Transaktionsbelege folgen einer Kompositionsstruktur von Kopf (1) zu Positionen 
 #### Validierung & Meldungsverarbeitung
 - **Echtzeit-UI-Fehlerbereinigung:** Zustandsbereichsbasierte Handler löschen feldspezifische Validierungsmeldungen sofort nach deren Korrektur.
 - **Duplikatvalidierung für Belegzeilen:** Die In-Memory-Kontextauswertung verhindert doppelte `ItemCode`-Einträge in separaten Zeilen desselben Belegs.
-- **Übergreifende & Datumsregeln:** Erzwingt organisatorische Konsistenz (Lagerzuordnung zum Buchungskreis, Lieferantenrollenprüfung) und chronologische Datumsregeln.
+- **Übergreifende & Datumsregeln:** Erzwingt organisatorische Konsistency (Lagerzuordnung zum Buchungskreis, Lieferantenrollenprüfung) und chronologische Datumsregeln.
 
-### 4.2. Document Status Lifecycle (Belegstatus-Lebenszyklus)
+### 4.2. Purchase Order Status Lifecycle
 - **New / Neu (`N`):** Bearbeitbarer Entwurf oder neu gespeicherter Beleg.
 - **Approved / Genehmigt (`A`):** Freigegebener Beleg über die Aktion `releaseDocument` (erfordert mindestens 1 Belegzeile).
-- **In Delivery / In Lieferung (`P`) / Completed / Abgeschlossen (`C`):** Logistische Ausführungsphasen.
+- **In Delivery / In Lieferung (`P`) / Completed / Abgeschlossen (`C`):** Logistische Ausführungsphasen (werden künftig durch Wareneingänge aktualisiert).
 - **Cancelled / Storniert (`X`):** Beendeter Beleg über die Aktion `cancelDocument`; von nachgelagerten Berechnungen ausgeschlossen.
 
 ---
 
-## 5. Dynamic Inventory Calculation Concept (Konzept der dynamischen Bestandsberechnung)
+## 5. Dynamic Inventory Calculation Concept (Konzept der dynamischen Bestandsberechnung — Zielbild)
 
-Lagerbestände werden nicht statisch in persistenten Tabellen gespeichert. Die aktuellen Bestände werden in Echtzeit dynamisch aus den gebuchten Lagerbewegungsbelegen berechnet:
+Lagerbestände werden in Echtzeit dynamisch aus gebuchten Lagerbewegungsbelegen berechnet, sobald die vollständige Transaktionssuite umgesetzt ist:
 
 `Aktueller Bestand = Summe(Gebuchte Wareneingänge) - Summe(Gebuchte Warenausgänge)`
 
-### Rules (Regeln):
-- Die Nachverfolgung erfolgt pro Buchungskreis + Lager + Artikel.
-- Schließt Artikel aus, bei denen der Artikeltyp = Dienstleistung (`S`) ist.
-- Fehler wegen unzureichenden Bestands werden während des Übergangs von Warenausgangsbelegen in den Status Gebucht über RAP-Validierungen beim Speichern erzwungen.
+*Hinweis: Dieses Konzept ist für die Implementierung zusammen mit den Modulen Wareneingang (Goods Receipt) und Warenausgang (Goods Issue) in folgenden Phasen geplant.*
