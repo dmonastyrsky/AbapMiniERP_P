@@ -23,12 +23,13 @@ The system uses standardized prefixes, fixed-length formatting, and dedicated Nu
 | Entity | Semantic Prefix | Pattern Example | Key Generation Strategy | Status |
 |---|---|---|---|---|
 | **Company Code** | *None* | `1000` | Manual Input | Implemented |
-| **Warehouse** | `WH` | `WH00001` | Early Numbering / Hybrid NRO + DB Max | Implemented |
+| **Warehouse** | `WH` | `WH001` | Early Numbering / Hybrid NRO + DB Max | Implemented |
 | **Business Partner** | *None* | `00001` | Early Numbering / Hybrid NRO + DB Max | Implemented |
 | **Item Group** | *None* | `00001` | Early Numbering / Hybrid NRO + DB Max | Implemented |
 | **Item Master** | *None* | `00001` | Early Numbering / Hybrid NRO + DB Max | Implemented |
-| **VAT Rate** | `V` | `V0001` | Early Numbering / Hybrid NRO + DB Max | Implemented |
-| **Purchase Order** | *Company Prefix* | `1000000001` | Early/On-Save Numbering / Company-Scoped NRO | Implemented |
+| **VAT Rate** | `V` | `V001` | Early Numbering / Hybrid NRO + DB Max | Implemented |
+| **Purchase Order** | *Company Prefix* | `DE00000001` | On-Save Numbering (Late) / Company-Scoped NRO | Implemented |
+| **Goods Receipt** | *Company Prefix* | `DE00000001` | On-Save Numbering (Late) / Company-Scoped NRO | Implemented |
 
 ---
 
@@ -58,7 +59,7 @@ The transactional document scope is structured across procurement and sales chai
 
 ### Procurement (Procurement Chain)
 - **Purchase Order (`ZMERP_R_PURCHASEORDER`) — Implemented:** Header to Line Items composition structure handling procurement order creation and approval lifecycle.
-- **Goods Receipt — Planned:** Future document type for capturing physical receipts against Purchase Orders.
+- **Goods Receipt (`ZMERP_R_GOODSRECEIPT`) — Implemented:** Document type for capturing physical receipts against Purchase Orders, updating PO progress, and triggering inventory movements.
 
 ### Sales (Sales Chain)
 - **Sales Order — Planned:** Future document type for managing customer sales orders.
@@ -66,8 +67,8 @@ The transactional document scope is structured across procurement and sales chai
 
 ### 4.1. Purchase Order Functional Architecture (Implemented)
 
-#### Company-Scoped Sequential Numbering
-- **Context-Aware NRO Allocation:** Document numbers (`DocumentNumber`) are generated on save using Number Range Objects scoped to the specific `CompanyCode`, incorporating the company prefix for unique enterprise identification.
+#### Company-Scoped Sequential Numbering (Late Numbering on Save)
+- **Context-Aware NRO Allocation:** Document numbers (`DocumentNumber`) are assigned strictly on the first save (`assignDocumentNumber`) using Number Range Objects scoped to the specific `CompanyCode`, incorporating the company prefix for unique enterprise identification (e.g., `DE00000001`). Drafts do not have a permanent document number.
 
 #### Document Calculation Engine (`ZCL_MERP_DOC_CALC`)
 - **Item-Level Calculations:** Modifying `Quantity`, `Price`, or `VatCode` triggers automated recalculations of item line financial amounts (`NetAmount`, `VatAmount`, `GrossAmount`) based on active tax percentages.
@@ -81,15 +82,31 @@ The transactional document scope is structured across procurement and sales chai
 ### 4.2. Purchase Order Status Lifecycle
 - **New (`N`):** Editable draft or newly saved document.
 - **Approved (`A`):** Released document via `releaseDocument` action (requires at least 1 line item).
-- **In Delivery (`P`) / Completed (`C`):** Logistical execution lifecycle states (to be updated by Goods Receipts).
+- **In Delivery (`P`):** Delivery started or partially received.
+- **Completed (`C`):** Closed document (all quantities received).
 - **Cancelled (`X`):** Terminated document via `cancelDocument` action; excluded from downstream processing.
+
+### 4.3. Goods Receipt Functional Architecture (Implemented)
+
+#### PO Reference & Line Derivation
+- **Selection & Copying:** Selecting a Purchase Order automatically derives header data (Company, Warehouse, Partner, Currency) and populates item lines based on open quantities (`ZMERP_I_PO_PROGRESS`).
+- **Flexible Entry:** Supports both reference PO lines (with quantity adjustments and automated amount calculation) and manual supplementary lines.
+
+#### Inventory Posting & Additional Save (`with additional save`)
+- **Stock Movement Writing:** Posting a Goods Receipt (`Post` action) executes stock movement journal entries (`ZMERP_STOCK_MOV`) via additional save persistence.
+- **Status & Progress Integration:** Automatically updates the referenced Purchase Order receipt status (via `setReceiptStatus` action) and recalculates open item quantities.
+- **Reversal & Cancellation:** Supports `Unpost` (returning the document to New and rolling back stock movements with negative stock protection) and `Cancel` actions.
 
 ---
 
-## 5. Dynamic Inventory Calculation Concept (Design Target)
+## 5. Inventory & Stock Management Architecture (Implemented)
 
-Lagerbestände (Inventory balances) will be calculated dynamically in real time from posted movement documents once the full transactional suite is complete:
+Stock levels and valuation are managed dynamically through a movement journal and aggregation views:
 
-`Current Stock = Sum(Posted Goods Receipts) - Sum(Posted Goods Issues)`
+### Stock Movement Journal (`ZMERP_STOCK_MOV`)
+- Records incoming movements for posted product lines with company, warehouse, item, quantity, unit, valuation amount in company currency, and posting date.
+- Excludes intangible services (Item Type `S`).
 
-*Note: This concept is planned for implementation alongside the Goods Receipt and Goods Issue modules in subsequent releases.*
+### Stock Balances (`ZMERP_R_STOCK_BALANCE`)
+- **Real-Time Aggregation:** Aggregates quantities and valuation amounts from all posted movements per company, warehouse, item, and unit.
+- **OData UI Exposure:** Exposed via read-only OData V4 service binding `ZUI_MERP_STOCK_O4` for balance lists and drill-down movement history.

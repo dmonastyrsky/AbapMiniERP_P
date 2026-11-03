@@ -5,7 +5,7 @@
 [![SAP ABAP Cloud](https://img.shields.io/badge/SAP-ABAP%20Cloud-0FAAFF?style=flat-square&logo=sap)](https://www.sap.com)
 [![SAP RAP](https://img.shields.io/badge/Model-SAP%20RAP%20(Managed)-0073C6?style=flat-square)](https://help.sap.com)
 [![Clean Core](https://img.shields.io/badge/Architecture-Clean%20Core%20Compliant-green?style=flat-square)](#6-принципи-clean-core)
-[![Status](https://img.shields.io/badge/Status-Phase%201%20Complete%20%7C%20PO%20Implemented-brightgreen?style=flat-square)](#3-статус-реалізації-та-план-робіт)
+[![Status](https://img.shields.io/badge/Status-Phase%202%20%7C%20Procurement%20%26%20Stock%20Implemented-brightgreen?style=flat-square)](#3-статус-реалізації-та-план-робіт)
 
 **Версія:** 1.0 (MVP)
 
@@ -30,7 +30,7 @@ Mini ERP — це демонстраційна ERP-система, розроб�
 - **Модель програмування:** SAP RESTful Application Programming Model (RAP)
 - **Моделювання даних:** ABAP Core Data Services / CDS View Entities
 - **Персистентність:** Transparent Tables з підтримкою RAP Draft (Чернеток RAP)
-- **Сервіси:** OData V4 UI Services (`ZUI_MERP_O4`, `ZUI_MERP_PROCUREMENT_O4`)
+- **Сервіси:** OData V4 UI Services (`ZUI_MERP_O4`, `ZUI_MERP_PROCUREMENT_O4`, `ZUI_MERP_STOCK_O4`)
 - **UI-фреймворк:** SAP Fiori Elements
 - **Стандарт розробки:** SAP Clean Core / ABAP Cloud
 
@@ -48,18 +48,18 @@ Mini ERP — це демонстраційна ERP-система, розроб�
 - **Item (Товари/Послуги):** Матеріальні продукти та нематеріальні послуги (автоматичне присвоєння ключів).
 - **VAT Rate (Ставки ПДВ):** Центральний механізм для конфігурації та ведення податкових ставок (автоматичне присвоєння ключів).
 
-### Етап 2: Transactional Engine & Inventory (Транзакційне ядро та складський облік) — У процесі розробки
+### Етап 2: Transactional Engine & Inventory (Транзакційне ядро та складський облік) — Реалізовано
 
 #### Procurement (Закупівлі)
 - **Purchase Orders (Замовлення на закупівлю) — Реалізовано:** Повний життєвий цикл закупівельного документа (Новий, Затверджений, В доставці, Завершений, Скасований) з нумерацією документів у розрізі компаній, інтерактивною обробкою помилок у реальному часі, перевіркою дублів позицій та автоматичним розрахунком сум у позиціях і заголовку.
-- **Goods Receipts (Надходження матеріалів) — Заплановано:** Майбутня реалізація для проведення часткових та повних складських надходжень за замовленнями.
+- **Goods Receipts (Надходження матеріалів) — Реалізовано:** Повна обробка надходження товарів за замовленнями на закупівлю з автоматичним проведенням рухів запасів (`with additional save`), відстеженням прогресу виконання замовлень та можливостями скасування/сторнування.
+
+#### Inventory & Stock Management (Облік запасів та склади) — Реалізовано
+- **Stock Balances & Movements — Реалізовано:** Агреговані залишки запасів у реальному часі (`ZMERP_R_STOCK_BALANCE`) та детальний журнал історії рухів (`ZMERP_STOCK_MOV`) із фіксацією компанії, складу, товару, кількості та оцінки вартості у валюті компанії.
 
 #### Sales (Продажі)
 - **Sales Orders (Замовлення на продаж) — Заплановано:** Майбутня реалізація життєвого циклу документів продажів покупцям.
 - **Goods Issues (Відпуск матеріалів) — Заплановано:** Майбутня реалізація для проведення складського відпуску та відвантаження товарів.
-
-#### Dynamic Stock Calculation (Динамічний розрахунок запасів) — Заплановано
-- Динамічний розрахунок залишків на складах у реальному часі (`Запаси = Надходження - Відпуск`) за допомогою CDS View Entities після реалізації документів надходження та відпуску.
 
 ---
 
@@ -98,7 +98,8 @@ Mini ERP — це демонстраційна ERP-система, розроб�
 
 Застосунок відкриває розділені OData V4 сервіси для використання у SAP Fiori Elements:
 - **Сервіс Основних даних (`ZUI_MERP_O4`):** Відкриває всі сутності Master Data (Організація, Склад, Бізнес-партнер, Групи товарів, Товари/Послуги, Ставки ПДВ).
-- **Сервіс Закупівель (`ZUI_MERP_PROCUREMENT_O4`):** Відкриває транзакційні сутності Закупівель (Заголовки та позиції замовлень на закупівлю).
+- **Сервіс Закупівель (`ZUI_MERP_PROCUREMENT_O4`):** Відкриває транзакційні сутності Закупівель (Заголовки замовлень на закупівлю, надходження товарів та позиції).
+- **Сервіс Запасів (`ZUI_MERP_STOCK_O4`):** Відкриває журнали залишків на складах та рухів матеріалів у режимі лише для читання.
 
 ---
 
@@ -114,7 +115,7 @@ Mini ERP — це демонстраційна ERP-система, розроб�
 
 1. Імпортуйте репозиторій у ваше середовище SAP BTP ABAP Environment за допомогою інструменту **abapGit** в Eclipse ADT.
 2. Активуйте CDS View Entities, Behavior Definitions та Service Bindings в ієрархічному порядку.
-3. Відкрийте Service Bindings `ZUI_MERP_O4` та `ZUI_MERP_PROCUREMENT_O4` і натисніть **Publish** (або **Unpublish / Publish**) для реєстрації локальних кінцевих точок OData V4.
+3. Відкрийте Service Bindings (`ZUI_MERP_O4`, `ZUI_MERP_PROCUREMENT_O4`, `ZUI_MERP_STOCK_O4`) і натисніть **Publish** (або **Unpublish / Publish**) для реєстрації локальних кінцевих точок OData V4.
 4. Запустіть клас `ZCL_MERP_INITIAL_SETUP` в Eclipse ADT (`F9`) для заповнення початкових даних та синхронізації діапазонів номерів.
 5. Перегляньте роботу застосунків за допомогою Fiori Elements Preview в будь-якому редакторі Service Binding.
 

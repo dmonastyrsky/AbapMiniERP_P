@@ -5,7 +5,7 @@
 [![SAP ABAP Cloud](https://img.shields.io/badge/SAP-ABAP%20Cloud-0FAAFF?style=flat-square&logo=sap)](https://www.sap.com)
 [![SAP RAP](https://img.shields.io/badge/Model-SAP%20RAP%20(Managed)-0073C6?style=flat-square)](https://help.sap.com)
 [![Clean Core](https://img.shields.io/badge/Architecture-Clean%20Core%20Compliant-green?style=flat-square)](#6-clean-core-principles)
-[![Status](https://img.shields.io/badge/Status-Phase%201%20Complete%20%7C%20PO%20Implemented-brightgreen?style=flat-square)](#3-implementation-status--roadmap)
+[![Status](https://img.shields.io/badge/Status-Phase%202%20%7C%20Procurement%20%26%20Stock%20Implemented-brightgreen?style=flat-square)](#3-implementation-status--roadmap)
 
 **Version:** 1.0 (MVP)
 
@@ -30,7 +30,7 @@ Detailed technical architecture and domain model specifications are available in
 - **Programming Model:** SAP RESTful Application Programming Model (RAP)
 - **Data Modeling:** ABAP Core Data Services (CDS View Entities)
 - **Persistence:** Transparent Tables with RAP Draft Support
-- **Services:** OData V4 UI Services (`ZUI_MERP_O4`, `ZUI_MERP_PROCUREMENT_O4`)
+- **Services:** OData V4 UI Services (`ZUI_MERP_O4`, `ZUI_MERP_PROCUREMENT_O4`, `ZUI_MERP_STOCK_O4`)
 - **UI Framework:** SAP Fiori Elements
 - **Development Standard:** SAP Clean Core / ABAP Cloud
 
@@ -48,18 +48,18 @@ The project is structured into two main phases.
 - **Item:** Tangible products and intangible services (Auto-generated Key).
 - **VAT Rate:** Central engine for tax percentage maintenance (Auto-generated Key).
 
-### Phase 2: Transactional Engine & Inventory (In Progress)
+### Phase 2: Transactional Engine & Inventory (Implemented)
 
 #### Procurement (Einkauf)
 - **Purchase Orders (Bestellung) — Implemented:** Complete procurement document lifecycle (New, Approved, In Delivery, Completed, Cancelled) featuring company-scoped sequential document numbering, real-time UI message handling, item duplicate checks, and automated calculation of line amounts and document header totals.
-- **Goods Receipts (Wareneingang) — Planned:** Future implementation for logging partial and full inventory receipts against Purchase Orders.
+- **Goods Receipts (Wareneingang) — Implemented:** Full goods receipt processing against Purchase Orders with automatic inventory movement posting (`with additional save`), PO receipt progress tracking, and unpost/cancel capabilities.
+
+#### Inventory & Stock Management (Bestandsführung) — Implemented
+- **Stock Balances & Movements — Implemented:** Real-time aggregated stock balances (`ZMERP_R_STOCK_BALANCE`) and detailed movement history journal (`ZMERP_STOCK_MOV`) capturing company, warehouse, item, quantity, and valuation in company currency.
 
 #### Sales (Vertrieb)
 - **Sales Orders (Kundenauftrag) — Planned:** Future implementation for customer sales document lifecycle.
 - **Goods Issues (Warenausgang) — Planned:** Future implementation for logging outbound stock deliveries.
-
-#### Dynamic Stock Calculation — Planned
-- Real-time inventory calculation (`Stock = Receipts - Issues`) calculated dynamically via CDS View Entities once Goods Receipts and Goods Issues are implemented.
 
 ---
 
@@ -98,7 +98,8 @@ The project is structured into two main phases.
 
 The application exposes decoupled OData V4 services for SAP Fiori Elements consumption:
 - **Master Data Service (`ZUI_MERP_O4`):** Exposes all Master Data entities (Company Code, Warehouse, Business Partner, Item Group, Item, VAT Rate).
-- **Procurement Service (`ZUI_MERP_PROCUREMENT_O4`):** Exposes transactional Procurement entities (Purchase Orders and Line Items).
+- **Procurement Service (`ZUI_MERP_PROCUREMENT_O4`):** Exposes transactional Procurement entities (Purchase Orders, Goods Receipts, and Line Items).
+- **Stock Service (`ZUI_MERP_STOCK_O4`):** Exposes read-only inventory balances and stock movement journals.
 
 ---
 
@@ -114,7 +115,7 @@ The application exposes decoupled OData V4 services for SAP Fiori Elements consu
 
 1. Import the repository into your SAP BTP ABAP Environment using **abapGit** in Eclipse ADT.
 2. Activate CDS View Entities, Behavior Definitions, and Service Bindings in hierarchical order.
-3. Open Service Bindings `ZUI_MERP_O4` and `ZUI_MERP_PROCUREMENT_O4`, then click **Publish** (or **Unpublish / Publish**) to register the local OData V4 endpoints.
+3. Open Service Bindings (`ZUI_MERP_O4`, `ZUI_MERP_PROCUREMENT_O4`, `ZUI_MERP_STOCK_O4`), then click **Publish** (or **Unpublish / Publish**) to register the local OData V4 endpoints.
 4. Run class `ZCL_MERP_INITIAL_SETUP` in Eclipse ADT (`F9`) to populate seed data and synchronize Number Ranges.
 5. Preview applications via Fiori Elements Preview in either Service Binding editor.
 
