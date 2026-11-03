@@ -97,6 +97,11 @@ Der Bereich der Transaktionsbelege gliedert sich in Beschaffungs- und Vertriebsk
 - **Status- & Fortschrittsintegration:** Aktualisiert automatisch den Wareneingangsstatus der angeforderten Bestellung (über die Aktion `setReceiptStatus`) und berechnet die offenen Artikelmengen neu.
 - **Stornierung & Rückbuchung:** Unterstützt `Unpost` (setzt den Beleg auf „Neu“ zurück und macht Lagerbewegungen mit Schutz vor negativen Beständen rückgängig) sowie die Aktion `Cancel`.
 
+### 4.4. Goods Receipt Status Lifecycle (Wareneingangs-Lebenszyklus — Umgesetzt)
+- **New / Neu (`N`):** Bearbeitbarer Beleg vor der Bestandsbuchung. Beeinflusst keine Bestandssalden.
+- **Posted / Gebucht (`P`):** Ausgeführter Wareneingangsbeleg über die Aktion `Post`. Schreibt Bestandsbewegungen nach `ZMERP_STOCK_MOV`, aktualisiert den Status der referenzierten Bestellung und sperrt Kopf/Positionen vor direkter Bearbeitung.
+- **Cancelled / Storniert (`X`):** Beendeter Beleg über die Aktion `Cancel` (nur aus dem Status `N` zulässig). Gebuchte Belege müssen vor der Stornierung erst rückgebucht (`Unpost`) werden.
+
 ---
 
 ## 5. Inventory & Stock Management Architecture (Bestandsführung — Umgesetzt)

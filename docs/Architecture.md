@@ -97,6 +97,11 @@ The transactional document scope is structured across procurement and sales chai
 - **Status & Progress Integration:** Automatically updates the referenced Purchase Order receipt status (via `setReceiptStatus` action) and recalculates open item quantities.
 - **Reversal & Cancellation:** Supports `Unpost` (returning the document to New and rolling back stock movements with negative stock protection) and `Cancel` actions.
 
+### 4.4. Goods Receipt Status Lifecycle (Implemented)
+- **New (`N`):** Editable document prior to stock posting. Does not affect inventory balances.
+- **Posted (`P`):** Executed receipt document via `Post` action. Writes stock movements to `ZMERP_STOCK_MOV`, updates referenced Purchase Order status, and locks header/lines from direct edits.
+- **Cancelled (`X`):** Terminated document via `Cancel` action (allowed only from `N` status). Posted documents must be unposted (`Unpost`) before cancellation.
+
 ---
 
 ## 5. Inventory & Stock Management Architecture (Implemented)
