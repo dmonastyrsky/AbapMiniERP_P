@@ -1,0 +1,13 @@
+@EndUserText: {
+  label: 'Service Definition for Stock UI'
+}
+@ObjectModel: {
+  leadingEntity: {
+    name: 'ZMERP_C_STOCK_BALANCE'
+  }
+}
+define service ZUI_MERP_STOCK
+  provider contracts odata_v4_ui {
+  expose ZMERP_C_STOCK_BALANCE  as StockBalance;
+  expose ZMERP_C_STOCK_MOVEMENT as StockMovement;
+}

@@ -1,0 +1,6 @@
+@EndUserText.label: 'ZMERP_R_GOODSRECEIPTITM'
+@MappingRole: true
+define role ZMERP_R_GOODSRECEIPTITM {
+  grant select on ZMERP_R_GOODSRECEIPTITM
+  where TRUE;
+}

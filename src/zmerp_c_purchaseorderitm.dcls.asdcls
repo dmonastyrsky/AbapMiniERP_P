@@ -1,0 +1,6 @@
+@EndUserText.label: 'Access Control for ZMERP_C_PURCHASEORDERITM'
+@MappingRole: true
+define role ZMERP_C_PURCHASEORDERITM {
+  grant select on ZMERP_C_PURCHASEORDERITM
+  where INHERITING CONDITIONS FROM ENTITY ZMERP_R_PURCHASEORDERITM;
+}

@@ -1,0 +1,143 @@
+@Metadata.layer: #CUSTOMER
+
+@UI.headerInfo: {
+  typeName: 'Goods Receipt Item',
+  typeNamePlural: 'Goods Receipt Items',
+  title: { value: 'ItemNo' },
+  description: { value: 'ItemCode' }
+}
+
+@UI.presentationVariant: [{
+  sortOrder: [{ by: 'ItemNo', direction: #ASC }]
+}]
+
+annotate view ZMERP_C_GOODSRECEIPTITM with
+{
+  @UI.facet: [
+    {
+      id: 'ItemDataSection',
+      purpose: #STANDARD,
+      type: #COLLECTION,
+      label: 'Item Details',
+      position: 10
+    },
+    {
+      id: 'ItemGeneralSubSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      parentId: 'ItemDataSection',
+      label: 'General Information',
+      targetQualifier: 'ItemGeneralGroup',
+      position: 10
+    },
+    {
+      id: 'PricingSubSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      parentId: 'ItemDataSection',
+      label: 'Pricing & Taxes',
+      targetQualifier: 'PricingGroup',
+      position: 20
+    },
+    {
+      id: 'AmountsSubSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      parentId: 'ItemDataSection',
+      label: 'Calculated Amounts',
+      targetQualifier: 'AmountsGroup',
+      position: 30
+    },
+    {
+      id: 'AdminItemSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      label: 'Administrative Data',
+      targetQualifier: 'AdminGroup',
+      position: 20,
+      hidden: true
+    }
+  ]
+
+  @UI.hidden: true
+  ItemUUID;
+
+  @UI.hidden: true
+  HeaderUUID;
+
+  /* ---------- Column 1: General Information ---------- */
+  @UI.lineItem: [
+    { position: 10, importance: #HIGH },
+    // All selected rows in one call: one result and one refresh of the table
+    { type: #FOR_ACTION, dataAction: 'fillOpenQuantity', label: 'Fill Open Quantity', invocationGrouping: #CHANGE_SET }
+  ]
+  ItemNo;
+
+  @EndUserText.label: 'Purchase Order'
+  @UI.lineItem: [{ position: 15, importance: #HIGH, label: 'Purchase Order' }]
+  @UI.fieldGroup: [{ qualifier: 'ItemGeneralGroup', position: 15, label: 'Purchase Order' }]
+  PoDocumentNumber;
+
+  @UI.lineItem: [{ position: 20, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'ItemGeneralGroup', position: 20 }]
+  ItemCode;
+
+  @UI.lineItem: [{ position: 30, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'ItemGeneralGroup', position: 30 }]
+  Quantity;
+  
+  @EndUserText.label: 'Open in PO'      
+  @UI.lineItem: [{ position: 35, importance: #HIGH, label: 'Open in PO' }]
+  @UI.fieldGroup: [{ qualifier: 'ItemGeneralGroup', position: 35, label: 'Open in PO' }]
+  PoOpenQuantity;
+
+  @UI.lineItem: [{ position: 40, importance: #MEDIUM }]
+  @UI.fieldGroup: [{ qualifier: 'ItemGeneralGroup', position: 40 }]
+  @UI.hidden: true
+  PoItemReferenceUUID;
+
+  /* ---------- Column 2: Pricing & Taxes ---------- */
+  @UI.lineItem: [{ position: 50, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'PricingGroup', position: 10 }]
+  Price;
+
+  @UI.lineItem: [{ position: 70, importance: #MEDIUM }]
+  @UI.fieldGroup: [{ qualifier: 'PricingGroup', position: 20 }]
+  VatCode;
+
+  /* ---------- Column 3: Calculated Amounts ---------- */
+  @UI.lineItem: [{ position: 60, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'AmountsGroup', position: 10 }]
+  NetAmount;
+
+  @UI.lineItem: [{ position: 80, importance: #MEDIUM }]
+  @UI.fieldGroup: [{ qualifier: 'AmountsGroup', position: 20 }]
+  VatAmount;
+
+  @UI.lineItem: [{ position: 90, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'AmountsGroup', position: 30 }]
+  GrossAmount;
+
+  /* ---------- Hidden Fields to Prevent Duplication ---------- */
+  @UI.hidden: true
+  UnitOfMeasure;
+
+  @UI.hidden: true
+  CurrencyCode;
+
+  /* ---------- Admin ---------- */
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 10 }]
+  CreatedBy;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 20 }]
+  CreatedAt;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 30 }]
+  LocalLastChangedBy;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 40 }]
+  LocalLastChangedAt;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 50 }]
+  LastChangedAt;
+}

@@ -1,0 +1,82 @@
+@Metadata.layer: #CUSTOMER
+
+@UI.headerInfo: {
+  typeName: 'Stock Balance',
+  typeNamePlural: 'Stock Balances',
+  title: { value: 'ItemDescription' },
+  description: { value: 'WarehouseName' }
+}
+
+@UI.presentationVariant: [{
+  sortOrder: [ { by: 'CompanyCode',   direction: #ASC },
+               { by: 'WarehouseCode', direction: #ASC },
+               { by: 'ItemCode',      direction: #ASC } ]
+}]
+
+annotate view ZMERP_C_STOCK_BALANCE with
+{
+  @UI.facet: [
+    {
+      id: 'GeneralSection',
+      purpose: #STANDARD,
+      type: #IDENTIFICATION_REFERENCE,
+      label: 'General Information',
+      position: 10
+    },
+    {
+      id: 'MovementsSection',
+      purpose: #STANDARD,
+      type: #LINEITEM_REFERENCE,
+      label: 'Movements',
+      targetElement: '_Movements',
+      position: 20
+    }
+  ]
+
+  @UI.lineItem: [{ position: 10, importance: #HIGH }]
+  @UI.identification: [{ position: 10 }]
+  @UI.selectionField: [{ position: 10 }]
+  CompanyCode;
+
+  @UI.lineItem: [{ position: 20, importance: #HIGH }]
+  @UI.identification: [{ position: 20 }]
+  @UI.selectionField: [{ position: 20 }]
+  WarehouseCode;
+
+  @UI.lineItem: [{ position: 30, importance: #HIGH }]
+  @UI.identification: [{ position: 30 }]
+  @UI.selectionField: [{ position: 30 }]
+  ItemCode;
+
+  @UI.lineItem: [{ position: 40, importance: #MEDIUM }]
+  @UI.identification: [{ position: 40 }]
+  @UI.selectionField: [{ position: 40 }]
+  ItemGroupCode;
+
+  @UI.lineItem: [{ position: 50, importance: #HIGH }]
+  @UI.identification: [{ position: 50 }]
+  Quantity;
+
+  @UI.lineItem: [{ position: 60, importance: #HIGH }]
+  @UI.identification: [{ position: 60 }]
+  StockValue;
+
+  /* ---------- Texts and units are shown with their fields ---------- */
+  @UI.hidden: true
+  UnitOfMeasure;
+
+  @UI.hidden: true
+  CurrencyCode;
+
+  @UI.hidden: true
+  ItemDescription;
+
+  @UI.hidden: true
+  ItemGroupDescription;
+
+  @UI.hidden: true
+  CompanyName;
+
+  @UI.hidden: true
+  WarehouseName;
+}

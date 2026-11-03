@@ -1,0 +1,86 @@
+@Metadata.layer: #CUSTOMER
+
+@UI.headerInfo: {
+  typeName: 'Stock Movement',
+  typeNamePlural: 'Stock Movements',
+  title: { value: 'DocumentNumber' },
+  description: { value: 'ItemDescription' }
+}
+
+@UI.presentationVariant: [{
+  sortOrder: [{ by: 'PostingDate', direction: #DESC }]
+}]
+
+annotate view ZMERP_C_STOCK_MOVEMENT with
+{
+  @UI.facet: [
+    {
+      id: 'GeneralSection',
+      purpose: #STANDARD,
+      type: #IDENTIFICATION_REFERENCE,
+      label: 'General Information',
+      position: 10
+    }
+  ]
+
+  @UI.hidden: true
+  MovementUUID;
+
+  @UI.lineItem: [{ position: 10, importance: #HIGH }]
+  @UI.identification: [{ position: 10 }]
+  @UI.selectionField: [{ position: 40 }]
+  PostingDate;
+
+  @UI.lineItem: [{ position: 20, importance: #HIGH }]
+  @UI.identification: [{ position: 20 }]
+  Direction;
+
+  @UI.lineItem: [{ position: 30, importance: #HIGH }]
+  @UI.identification: [{ position: 30 }]
+  DocumentNumber;
+
+  @UI.lineItem: [{ position: 40, importance: #MEDIUM }]
+  @UI.identification: [{ position: 40 }]
+  @UI.selectionField: [{ position: 10 }]
+  CompanyCode;
+
+  @UI.lineItem: [{ position: 50, importance: #HIGH }]
+  @UI.identification: [{ position: 50 }]
+  @UI.selectionField: [{ position: 20 }]
+  WarehouseCode;
+
+  @UI.lineItem: [{ position: 60, importance: #HIGH }]
+  @UI.identification: [{ position: 60 }]
+  @UI.selectionField: [{ position: 30 }]
+  ItemCode;
+
+  @UI.lineItem: [{ position: 70, importance: #HIGH }]
+  @UI.identification: [{ position: 70 }]
+  Quantity;
+
+  @UI.lineItem: [{ position: 80, importance: #HIGH }]
+  @UI.identification: [{ position: 80 }]
+  StockValue;
+
+  /* ---------- Texts, units and technical fields ---------- */
+  @UI.hidden: true
+  CompanyName;
+
+  @UI.hidden: true
+  WarehouseName;
+
+  @UI.hidden: true
+  ItemDescription;
+
+  @UI.hidden: true
+  DocumentType;
+
+  @UI.hidden: true
+  DocumentUUID;
+
+  @UI.hidden: true
+  UnitOfMeasure;
+
+  @UI.hidden: true
+  CurrencyCode;
+}

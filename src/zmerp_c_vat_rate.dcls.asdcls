@@ -1,0 +1,6 @@
+@EndUserText.label: 'ZMERP_C_VAT_RATE'
+@MappingRole: true
+define role ZMERP_C_VAT_RATE {
+  grant select on ZMERP_C_VAT_RATE
+  where INHERITING CONDITIONS FROM ENTITY ZMERP_R_VAT_RATE;
+}

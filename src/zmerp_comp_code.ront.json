@@ -1,0 +1,10 @@
+{
+  "formatVersion": "1",
+  "header": {
+    "description": "SAP Object Type ZMERP_COMP_CODE",
+    "originalLanguage": "en",
+    "abapLanguageVersion": "cloudDevelopment"
+  },
+  "typeCategory": "businessObject",
+  "name": "ZMERP_COMP_CODE"
+}

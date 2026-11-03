@@ -1,0 +1,74 @@
+projection implementation in class ZBP_MERP_C_GOODSRECEIPT unique;
+strict ( 2 );
+extensible;
+use draft;
+use side effects;
+
+define behavior for ZMERP_C_GOODSRECEIPT alias GoodsReceipt
+extensible
+use etag
+{
+  use create;
+  use update;
+  use delete;
+
+  use action postDocument;
+  use action cancelDocument;
+  use action unpostDocument;
+
+  use action Edit;
+  use action Activate;
+  use action Discard;
+  use action Resume;
+  use action Prepare;
+
+  use association _Items { create; with draft; }
+
+side effects
+  {
+    action postDocument affects entity _Items, messages;
+    action cancelDocument affects entity _Items, messages;
+    action unpostDocument affects entity _Items, messages;
+
+    field PoReferenceUUID affects field CompanyCode, field WarehouseCode, field BusinessPartnerCode, field CurrencyCode,
+        field SupplierReference, field TotalNetAmount, field TotalGrossAmount, field PoDocumentNumber,
+        entity _Items, messages;
+
+    // A changed company, partner or warehouse clears the purchase order and with it the currency
+    field CompanyCode affects field WarehouseCode, field PoReferenceUUID, field PoDocumentNumber, field CurrencyCode,
+        field TotalNetAmount, field TotalGrossAmount, entity _Items, messages;
+    field BusinessPartnerCode affects field PoReferenceUUID, field PoDocumentNumber, field CurrencyCode,
+        field TotalNetAmount, field TotalGrossAmount, entity _Items, messages;
+    field WarehouseCode affects field PoReferenceUUID, field PoDocumentNumber, field CurrencyCode,
+        field TotalNetAmount, field TotalGrossAmount, entity _Items, messages;
+
+    entity _Items affects field TotalNetAmount, field TotalGrossAmount, entity _Items, messages;
+
+    field DocumentDate affects field PostingDate, messages;
+    field PostingDate affects messages;
+  }
+}
+
+define behavior for ZMERP_C_GOODSRECEIPTITM alias GoodsReceiptItem
+extensible
+use etag
+{
+  use update;
+  use delete;
+
+  use action fillOpenQuantity;
+
+  use association _GoodsReceipt { with draft; }
+
+  side effects
+  {
+    // Changed fields named explicitly: with $self the selected table rows were not refreshed in the UI
+    action fillOpenQuantity affects field Quantity, field NetAmount, field VatAmount, field GrossAmount,
+        field _GoodsReceipt.TotalNetAmount, field _GoodsReceipt.TotalGrossAmount, messages;
+
+    field ItemCode affects field UnitOfMeasure, field VatCode, field VatAmount, field GrossAmount, messages;
+    field Quantity affects field NetAmount, field VatAmount, field GrossAmount, messages;
+    field Price affects field NetAmount, field VatAmount, field GrossAmount, messages;
+    field VatCode affects field VatAmount, field GrossAmount, messages;
+  }
+}
