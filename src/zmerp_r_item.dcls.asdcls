@@ -1,6 +1,0 @@
-@EndUserText.label: 'Access Control for ZMERP_R_ITEM'
-@MappingRole: true
-define role ZMERP_R_ITEM {
-  grant select on ZMERP_R_ITEM
-  where TRUE; 
-}
