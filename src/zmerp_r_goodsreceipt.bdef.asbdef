@@ -101,11 +101,10 @@ authorization dependent by _GoodsReceipt
   field ( readonly ) PoItemReferenceUUID;
 
   field ( readonly ) ItemNo, UnitOfMeasure;
-  field ( readonly ) CurrencyCode;  // always the header currency (from the purchase order, syncItemCurrency)
   field ( readonly ) NetAmount, VatAmount, GrossAmount;
   field ( readonly ) CreatedBy, CreatedAt, LocalLastChangedBy, LocalLastChangedAt, LastChangedAt;
 
-  field ( mandatory ) Quantity;
+  field ( mandatory ) Quantity, CurrencyCode;
   field ( features : instance ) ItemCode, Price, VatCode;
 
   action ( features : instance, authorization : update ) fillOpenQuantity result [1] $self;

@@ -1,7 +1,7 @@
 "! Initial seed data for Mini ERP.
-"! All data is reset first (ZCL_MERP_CLEAR_ALL_DATA). Master data is inserted directly;
-"! documents are created via EML, so all business logic applies (number ranges, defaults,
-"! amounts, validations, stock movements, purchase order status).
+"! All data is reset first (ZCL_MERP_CLEAR_ALL_DATA). Master data and documents are created via EML,
+"! so all business logic applies: numbering, defaults, validations, document intervals of new companies,
+"! amounts, stock movements and purchase order status. The seed stops when master data cannot be created.
 CLASS zcl_merp_initial_setup DEFINITION
   PUBLIC
   FINAL
@@ -18,7 +18,18 @@ CLASS zcl_merp_initial_setup DEFINITION
 
   PROTECTED SECTION.
   PRIVATE SECTION.
-    "! Document line: item number (formatted to the item code), quantity, price (purchase orders only)
+    "! Codes of the created master data in seed order: line n is the code of record n
+    "! (documents refer to master data by these numbers, e.g. warehouse_no = 1)
+    TYPES: BEGIN OF ty_codes,
+             companies   TYPE string_table,
+             vat_rates   TYPE string_table,
+             item_groups TYPE string_table,
+             warehouses  TYPE string_table,
+             items       TYPE string_table,
+             partners    TYPE string_table,
+           END OF ty_codes.
+
+    "! Document line: item number (seed order), quantity, price (purchase orders only)
     TYPES: BEGIN OF ty_line,
              item_no  TYPE i,
              quantity TYPE zmerp_quantity,
@@ -26,9 +37,9 @@ CLASS zcl_merp_initial_setup DEFINITION
            END OF ty_line,
            tt_lines TYPE STANDARD TABLE OF ty_line WITH EMPTY KEY.
 
-    "! Purchase order definition (dates relative to today)
+    "! Purchase order definition (master data by seed order, dates relative to today)
     TYPES: BEGIN OF ty_po,
-             company_code TYPE zmerp_company_code,
+             company_no   TYPE i,
              warehouse_no TYPE i,
              partner_no   TYPE i,
              days_ago     TYPE i,
@@ -57,34 +68,11 @@ CLASS zcl_merp_initial_setup DEFINITION
 
     TYPES tt_messages TYPE STANDARD TABLE OF REF TO if_abap_behv_message WITH EMPTY KEY.
 
-    "! Retrieves the current technical user name or falls back to default.
-    CLASS-METHODS get_current_user
-      RETURNING
-        VALUE(rv_user) TYPE abp_creation_user .
-
-    "! Retrieves the current system timestamp.
-    CLASS-METHODS get_current_timestamp
-      RETURNING
-        VALUE(rv_timestamp) TYPE abp_creation_tstmpl .
-
-    "! Fills common administrative audit fields for a given internal table.
-    "! @parameter ct_data | Internal table containing standard audit fields
-    CLASS-METHODS fill_audit_fields
-      CHANGING
-        ct_data TYPE ANY TABLE .
-
     "! Writes a text line to the console runner if bound.
     CLASS-METHODS write_log
       IMPORTING
         iv_text TYPE string
         out     TYPE REF TO if_oo_adt_classrun_out OPTIONAL .
-
-    "! Logs successful database insert status for an entity.
-    CLASS-METHODS write_insert_log
-      IMPORTING
-        iv_entity_name TYPE string
-        iv_count       TYPE i
-        out            TYPE REF TO if_oo_adt_classrun_out OPTIONAL .
 
     "! Logs a failed EML step together with its RAP messages.
     CLASS-METHODS write_failure
@@ -93,46 +81,85 @@ CLASS zcl_merp_initial_setup DEFINITION
         it_messages TYPE tt_messages
         out         TYPE REF TO if_oo_adt_classrun_out OPTIONAL .
 
-    "! Populates company codes.
-    CLASS-METHODS setup_company_codes
+    "! Returns the code of record n of a master data list (initial if there is no such record).
+    CLASS-METHODS get_code
       IMPORTING
-        out TYPE REF TO if_oo_adt_classrun_out OPTIONAL .
+        it_codes       TYPE string_table
+        iv_no          TYPE i
+      RETURNING
+        VALUE(rv_code) TYPE string .
 
-    "! Populates warehouses.
-    CLASS-METHODS setup_warehouses
+    "! Creates the company codes; each new company gets its document intervals (company saver).
+    "! @parameter rt_codes | Company codes in seed order (initial if the creation failed)
+    CLASS-METHODS create_company_codes
       IMPORTING
-        out TYPE REF TO if_oo_adt_classrun_out OPTIONAL .
+        out             TYPE REF TO if_oo_adt_classrun_out OPTIONAL
+      RETURNING
+        VALUE(rt_codes) TYPE string_table .
 
-    "! Populates VAT rates.
-    CLASS-METHODS setup_vat_rates
+    "! Creates the VAT rates.
+    "! @parameter rt_codes | VAT codes in seed order (initial if the creation failed)
+    CLASS-METHODS create_vat_rates
       IMPORTING
-        out TYPE REF TO if_oo_adt_classrun_out OPTIONAL .
+        out             TYPE REF TO if_oo_adt_classrun_out OPTIONAL
+      RETURNING
+        VALUE(rt_codes) TYPE string_table .
 
-    "! Populates item groups.
-    CLASS-METHODS setup_item_groups
+    "! Creates the item groups with their default VAT codes.
+    "! @parameter rt_codes | Item group codes in seed order (initial if the creation failed)
+    CLASS-METHODS create_item_groups
       IMPORTING
-        out TYPE REF TO if_oo_adt_classrun_out OPTIONAL .
+        is_codes        TYPE ty_codes
+        out             TYPE REF TO if_oo_adt_classrun_out OPTIONAL
+      RETURNING
+        VALUE(rt_codes) TYPE string_table .
 
-    "! Populates items (products and services).
-    CLASS-METHODS setup_items
+    "! Creates the warehouses of the companies.
+    "! @parameter rt_codes | Warehouse codes in seed order (initial if the creation failed)
+    CLASS-METHODS create_warehouses
       IMPORTING
-        out TYPE REF TO if_oo_adt_classrun_out OPTIONAL .
+        is_codes        TYPE ty_codes
+        out             TYPE REF TO if_oo_adt_classrun_out OPTIONAL
+      RETURNING
+        VALUE(rt_codes) TYPE string_table .
 
-    "! Populates business partners.
-    CLASS-METHODS setup_business_partners
+    "! Creates the items (products and services).
+    "! @parameter rt_codes | Item codes in seed order (initial if the creation failed)
+    CLASS-METHODS create_items
       IMPORTING
-        out TYPE REF TO if_oo_adt_classrun_out OPTIONAL .
+        is_codes        TYPE ty_codes
+        out             TYPE REF TO if_oo_adt_classrun_out OPTIONAL
+      RETURNING
+        VALUE(rt_codes) TYPE string_table .
+
+    "! Creates the business partners (suppliers, customers, both).
+    "! @parameter rt_codes | Partner codes in seed order (initial if the creation failed)
+    CLASS-METHODS create_business_partners
+      IMPORTING
+        out             TYPE REF TO if_oo_adt_classrun_out OPTIONAL
+      RETURNING
+        VALUE(rt_codes) TYPE string_table .
+
+    "! Creates all master data via EML, level by level, and aligns the master data intervals.
+    "! @parameter rs_codes | Codes of the created master data (initial if a level failed)
+    CLASS-METHODS setup_master_data
+      IMPORTING
+        out             TYPE REF TO if_oo_adt_classrun_out OPTIONAL
+      RETURNING
+        VALUE(rs_codes) TYPE ty_codes .
 
     "! Creates purchase orders and goods receipts covering the main lifecycle states.
     CLASS-METHODS setup_documents
       IMPORTING
-        out TYPE REF TO if_oo_adt_classrun_out OPTIONAL .
+        is_codes TYPE ty_codes
+        out      TYPE REF TO if_oo_adt_classrun_out OPTIONAL .
 
     "! Creates a purchase order via EML and optionally releases it.
     "! @parameter is_po      | Purchase order definition
     "! @parameter rv_po_uuid | Key of the created purchase order (initial if it failed)
     CLASS-METHODS create_purchase_order
       IMPORTING
+        is_codes          TYPE ty_codes
         is_po             TYPE ty_po
         out               TYPE REF TO if_oo_adt_classrun_out OPTIONAL
       RETURNING
@@ -143,10 +170,13 @@ CLASS zcl_merp_initial_setup DEFINITION
     "! @parameter is_gr | Goods receipt definition
     CLASS-METHODS create_goods_receipt
       IMPORTING
-        is_gr TYPE ty_gr
-        out   TYPE REF TO if_oo_adt_classrun_out OPTIONAL .
+        is_codes TYPE ty_codes
+        is_gr    TYPE ty_gr
+        out      TYPE REF TO if_oo_adt_classrun_out OPTIONAL .
 
 ENDCLASS.
+
+
 
 CLASS zcl_merp_initial_setup IMPLEMENTATION.
 
@@ -157,32 +187,23 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
   METHOD execute.
     write_log( iv_text = '=== Starting Initial Data Setup for Mini ERP ===' out = out ).
 
-    " 1. Reset: all tables (master data, documents, stock movements) and number range levels
+    " 1. Reset: all tables (master data, documents, stock movements) and number range levels.
+    "    Committed before EML: number assignment (number_get) must not wait for our own
+    "    uncommitted interval changes
     zcl_merp_clear_all_data=>execute( out ).
-
-    " 2. Master data
-    setup_company_codes( out ).
-    setup_vat_rates( out ).
-    setup_warehouses( out ).
-    setup_item_groups( out ).
-    setup_items( out ).
-    setup_business_partners( out ).
-
-    " 3. Number range levels follow the inserted master data; document numbers start from the beginning
-    zcl_merp_num_range_util=>sync_intervals_from_db( ).
-
-    " Cleanup, master data and number range intervals are saved before documents are created:
-    " number assignment (number_get) must not wait for our own uncommitted interval changes
     COMMIT WORK.
 
-    " 4. Documents via EML (the business logic assigns numbers, amounts, stock and statuses)
-    setup_documents( out ).
+    " 2. Master data via EML
+    DATA(ls_codes) = setup_master_data( out ).
+    IF ls_codes IS INITIAL.
+      write_log( iv_text = '=== Initial Data Setup stopped ===' out = out ).
+      RETURN.
+    ENDIF.
+
+    " 3. Documents via EML (the business logic assigns numbers, amounts, stock and statuses)
+    setup_documents( is_codes = ls_codes out = out ).
 
     write_log( iv_text = '==== Initial Data Setup Completed ====' out = out ).
-  ENDMETHOD.
-
-  METHOD write_insert_log.
-    write_log( iv_text = |[{ iv_entity_name }]: Successfully inserted { iv_count } rows.| out = out ).
   ENDMETHOD.
 
   METHOD write_failure.
@@ -192,513 +213,644 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
-  METHOD get_current_user.
-    TRY.
-        rv_user = cl_abap_context_info=>get_user_technical_name( ).
-      CATCH cx_abap_context_info_error.
-        rv_user = 'INITIAL_SETUP'.
-    ENDTRY.
-  ENDMETHOD.
-
-  METHOD get_current_timestamp.
-    GET TIME STAMP FIELD rv_timestamp.
-  ENDMETHOD.
-
   METHOD write_log.
     IF out IS BOUND.
       out->write( iv_text ).
     ENDIF.
   ENDMETHOD.
 
-  METHOD fill_audit_fields.
-    DATA(lv_user)      = get_current_user( ).
-    DATA(lv_timestamp) = get_current_timestamp( ).
+  METHOD get_code.
+    rv_code = VALUE #( it_codes[ iv_no ] OPTIONAL ).
+  ENDMETHOD.
 
-    LOOP AT ct_data ASSIGNING FIELD-SYMBOL(<ls_row>).
-      ASSIGN COMPONENT 'CREATED_BY' OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_cb>).
-      IF sy-subrc = 0. <lv_cb> = lv_user. ENDIF.
+  METHOD create_company_codes.
+    TYPES tt_create TYPE TABLE FOR CREATE zmerp_r_company_code.
 
-      ASSIGN COMPONENT 'CREATED_AT' OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_ca>).
-      IF sy-subrc = 0. <lv_ca> = lv_timestamp. ENDIF.
+    " Company codes are entered manually (no number range)
+    DATA(lt_create) = VALUE tt_create(
+      ( CompanyCode   = '1000'
+        CompanyName   = 'MERP Deutschland GmbH'
+        CompanyPrefix = 'DE'
+        CurrencyCode  = 'EUR'
+        Country       = 'DE' )
 
-      ASSIGN COMPONENT 'LOCAL_LAST_CHANGED_BY' OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_lcb>).
-      IF sy-subrc = 0. <lv_lcb> = lv_user. ENDIF.
+      ( CompanyCode   = '2000'
+        CompanyName   = 'MERP Trading GmbH'
+        CompanyPrefix = 'TR'
+        CurrencyCode  = 'EUR'
+        Country       = 'DE' )
 
-      ASSIGN COMPONENT 'LOCAL_LAST_CHANGED_AT' OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_lca>).
-      IF sy-subrc = 0. <lv_lca> = lv_timestamp. ENDIF.
+      ( CompanyCode   = '3000'
+        CompanyName   = 'Modevi GmbH'
+        CompanyPrefix = 'MD'
+        CurrencyCode  = 'EUR'
+        Country       = 'DE' )
 
-      ASSIGN COMPONENT 'LAST_CHANGED_AT' OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_lch>).
-      IF sy-subrc = 0. <lv_lch> = lv_timestamp. ENDIF.
+      ( CompanyCode   = '4000'
+        CompanyName   = 'MERP Inactive Services GmbH'
+        CompanyPrefix = 'IS'
+        CurrencyCode  = 'EUR'
+        Country       = 'DE'
+        IsBlocked     = abap_true )
+    ).
+
+    LOOP AT lt_create ASSIGNING FIELD-SYMBOL(<ls_create>).
+      <ls_create>-%cid = |COMPANY_{ sy-tabix }|.
     ENDLOOP.
+
+    MODIFY ENTITIES OF zmerp_r_company_code
+      ENTITY CompanyCode
+      CREATE FIELDS ( CompanyCode CompanyName CompanyPrefix CurrencyCode Country IsBlocked )
+      WITH lt_create
+      MAPPED DATA(ls_mapped)
+      FAILED DATA(ls_failed)
+      REPORTED DATA(ls_reported).
+
+    IF ls_failed IS INITIAL.
+      COMMIT ENTITIES RESPONSE OF zmerp_r_company_code
+        FAILED DATA(ls_commit_failed)
+        REPORTED DATA(ls_commit_reported).
+    ENDIF.
+
+    IF ls_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
+      write_failure(
+        iv_text     = '[Company Code]: Creation failed:'
+        it_messages = VALUE #( BASE VALUE #( FOR rep IN ls_reported-companycode ( rep-%msg ) )
+                               FOR com IN ls_commit_reported-companycode ( com-%msg ) )
+        out         = out ).
+      ROLLBACK ENTITIES.
+      RETURN.
+    ENDIF.
+
+    rt_codes = VALUE #( FOR row IN lt_create ( CONV #( ls_mapped-companycode[ %cid = row-%cid ]-CompanyCode ) ) ).
+    write_log( iv_text = |[Company Code]: { lines( rt_codes ) } records created.| out = out ).
   ENDMETHOD.
 
-  METHOD setup_company_codes.
-    DATA lt_comp_code TYPE zif_merp_constants=>ty_md_comp_tt.
+  METHOD create_vat_rates.
+    TYPES tt_create TYPE TABLE FOR CREATE zmerp_r_vat_rate.
 
-    lt_comp_code = VALUE #(
-      ( company_code   = '1000'
-        company_name   = 'MERP Deutschland GmbH'
-        company_prefix = 'DE'
-        currency_code  = 'EUR'
-        country        = 'DE' )
+    " VAT codes come from the number range (early numbering)
+    DATA(lt_create) = VALUE tt_create(
+      ( Description = 'VAT 0%'
+        Percentage  = '0.00' )
 
-      ( company_code   = '2000'
-        company_name   = 'MERP Trading GmbH'
-        company_prefix = 'TR'
-        currency_code  = 'EUR'
-        country        = 'DE' )
+      ( Description = 'VAT 7%'
+        Percentage  = '7.00' )
 
-      ( company_code   = '3000'
-        company_name   = 'Modevi GmbH'
-        company_prefix = 'MD'
-        currency_code  = 'EUR'
-        country        = 'DE' )
+      ( Description = 'VAT 19%'
+        Percentage  = '19.00' )
 
-      ( company_code   = '4000'
-        company_name   = 'MERP Inactive Services GmbH'
-        company_prefix = 'IS'
-        currency_code  = 'EUR'
-        country        = 'DE'
-        is_blocked     = abap_true )
+      ( Description = 'VAT 16% (Historical)'
+        Percentage  = '16.00'
+        IsBlocked   = abap_true )
     ).
 
-    fill_audit_fields( CHANGING ct_data = lt_comp_code ).
+    LOOP AT lt_create ASSIGNING FIELD-SYMBOL(<ls_create>).
+      <ls_create>-%cid = |VAT_{ sy-tabix }|.
+    ENDLOOP.
 
-    INSERT zmerp_comp_code FROM TABLE @lt_comp_code.
-    write_insert_log( iv_entity_name = 'Company Code' iv_count = sy-dbcnt out = out ).
+    MODIFY ENTITIES OF zmerp_r_vat_rate
+      ENTITY VatRate
+      CREATE FIELDS ( Description Percentage IsBlocked )
+      WITH lt_create
+      MAPPED DATA(ls_mapped)
+      FAILED DATA(ls_failed)
+      REPORTED DATA(ls_reported).
+
+    IF ls_failed IS INITIAL.
+      COMMIT ENTITIES RESPONSE OF zmerp_r_vat_rate
+        FAILED DATA(ls_commit_failed)
+        REPORTED DATA(ls_commit_reported).
+    ENDIF.
+
+    IF ls_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
+      write_failure(
+        iv_text     = '[VAT Rate]: Creation failed:'
+        it_messages = VALUE #( BASE VALUE #( FOR rep IN ls_reported-vatrate ( rep-%msg ) )
+                               FOR com IN ls_commit_reported-vatrate ( com-%msg ) )
+        out         = out ).
+      ROLLBACK ENTITIES.
+      RETURN.
+    ENDIF.
+
+    rt_codes = VALUE #( FOR row IN lt_create ( CONV #( ls_mapped-vatrate[ %cid = row-%cid ]-VatCode ) ) ).
+    write_log( iv_text = |[VAT Rate]: { lines( rt_codes ) } records created.| out = out ).
   ENDMETHOD.
 
-  METHOD setup_vat_rates.
-    DATA lt_vat_rates TYPE zif_merp_constants=>ty_md_vat_tt.
+  METHOD create_item_groups.
+    TYPES tt_create TYPE TABLE FOR CREATE zmerp_r_item_group.
 
-    lt_vat_rates = VALUE #(
-      ( vat_code    = zcl_merp_format_util=>format_vat_code( 1 )
-        description = 'VAT 0%'
-        percentage  = '0.00' )
+    DATA(lv_vat7)  = get_code( it_codes = is_codes-vat_rates iv_no = 2 ).
+    DATA(lv_vat19) = get_code( it_codes = is_codes-vat_rates iv_no = 3 ).
 
-      ( vat_code    = zcl_merp_format_util=>format_vat_code( 2 )
-        description = 'VAT 7%'
-        percentage  = '7.00' )
+    DATA(lt_create) = VALUE tt_create(
+      ( Description    = 'Major Home Appliances'
+        DefaultVatCode = lv_vat19 )
 
-      ( vat_code    = zcl_merp_format_util=>format_vat_code( 3 )
-        description = 'VAT 19%'
-        percentage  = '19.00' )
+      ( Description    = 'Small Kitchen Appliances'
+        DefaultVatCode = lv_vat19 )
 
-      ( vat_code    = zcl_merp_format_util=>format_vat_code( 4 )
-        description = 'VAT 16% (Historical)'
-        percentage  = '16.00'
-        is_blocked  = abap_true )
+      ( Description    = 'Consumer Electronics'
+        DefaultVatCode = lv_vat19 )
+
+      ( Description    = 'Accessories & Supplies'
+        DefaultVatCode = lv_vat19 )
+
+      ( Description    = 'Installation & Support Services'
+        DefaultVatCode = lv_vat7 )
+
+      ( Description    = 'Legacy Office Equipment'
+        DefaultVatCode = lv_vat19
+        IsBlocked      = abap_true )
     ).
 
-    fill_audit_fields( CHANGING ct_data = lt_vat_rates ).
+    LOOP AT lt_create ASSIGNING FIELD-SYMBOL(<ls_create>).
+      <ls_create>-%cid = |ITEM_GROUP_{ sy-tabix }|.
+    ENDLOOP.
 
-    INSERT zmerp_vat_rate FROM TABLE @lt_vat_rates.
-    write_insert_log( iv_entity_name = 'VAT Rate' iv_count = sy-dbcnt out = out ).
+    MODIFY ENTITIES OF zmerp_r_item_group
+      ENTITY ItemGroup
+      CREATE FIELDS ( Description DefaultVatCode IsBlocked )
+      WITH lt_create
+      MAPPED DATA(ls_mapped)
+      FAILED DATA(ls_failed)
+      REPORTED DATA(ls_reported).
+
+    IF ls_failed IS INITIAL.
+      COMMIT ENTITIES RESPONSE OF zmerp_r_item_group
+        FAILED DATA(ls_commit_failed)
+        REPORTED DATA(ls_commit_reported).
+    ENDIF.
+
+    IF ls_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
+      write_failure(
+        iv_text     = '[Item Group]: Creation failed:'
+        it_messages = VALUE #( BASE VALUE #( FOR rep IN ls_reported-itemgroup ( rep-%msg ) )
+                               FOR com IN ls_commit_reported-itemgroup ( com-%msg ) )
+        out         = out ).
+      ROLLBACK ENTITIES.
+      RETURN.
+    ENDIF.
+
+    rt_codes = VALUE #( FOR row IN lt_create ( CONV #( ls_mapped-itemgroup[ %cid = row-%cid ]-ItemGroupCode ) ) ).
+    write_log( iv_text = |[Item Group]: { lines( rt_codes ) } records created.| out = out ).
   ENDMETHOD.
 
-  METHOD setup_warehouses.
-    DATA lt_warehouses TYPE zif_merp_constants=>ty_md_wh_tt.
+  METHOD create_warehouses.
+    TYPES tt_create TYPE TABLE FOR CREATE zmerp_r_warehouse.
 
-    lt_warehouses = VALUE #(
-      ( warehouse_code = zcl_merp_format_util=>format_warehouse_code( 1 )
-        warehouse_name = 'Hauptlager Kusel'
-        company_code   = '1000' )
+    DATA(lv_company1) = get_code( it_codes = is_codes-companies iv_no = 1 ).
+    DATA(lv_company2) = get_code( it_codes = is_codes-companies iv_no = 2 ).
+    DATA(lv_company3) = get_code( it_codes = is_codes-companies iv_no = 3 ).
 
-      ( warehouse_code = zcl_merp_format_util=>format_warehouse_code( 2 )
-        warehouse_name = 'Hauptlager Frankfurt'
-        company_code   = '1000' )
+    DATA(lt_create) = VALUE tt_create(
+      ( WarehouseName = 'Hauptlager Kusel'
+        CompanyCode   = lv_company1 )
 
-      ( warehouse_code = zcl_merp_format_util=>format_warehouse_code( 3 )
-        warehouse_name = 'Lager Berlin'
-        company_code   = '1000' )
+      ( WarehouseName = 'Hauptlager Frankfurt'
+        CompanyCode   = lv_company1 )
 
-      ( warehouse_code = zcl_merp_format_util=>format_warehouse_code( 4 )
-        warehouse_name = 'Retourlager Frankfurt'
-        company_code   = '1000' )
+      ( WarehouseName = 'Lager Berlin'
+        CompanyCode   = lv_company1 )
 
-      ( warehouse_code = zcl_merp_format_util=>format_warehouse_code( 5 )
-        warehouse_name = 'Altlager Frankfurt'
-        company_code   = '1000'
-        is_blocked     = abap_true )
+      ( WarehouseName = 'Retourlager Frankfurt'
+        CompanyCode   = lv_company1 )
 
-      ( warehouse_code = zcl_merp_format_util=>format_warehouse_code( 6 )
-        warehouse_name = 'Hauptlager Hamburg'
-        company_code   = '2000' )
+      ( WarehouseName = 'Altlager Frankfurt'
+        CompanyCode   = lv_company1
+        IsBlocked     = abap_true )
 
-      ( warehouse_code = zcl_merp_format_util=>format_warehouse_code( 7 )
-        warehouse_name = 'Lager München'
-        company_code   = '2000' )
+      ( WarehouseName = 'Hauptlager Hamburg'
+        CompanyCode   = lv_company2 )
 
-      ( warehouse_code = zcl_merp_format_util=>format_warehouse_code( 8 )
-        warehouse_name = 'Transitlager Hamburg'
-        company_code   = '2000' )
+      ( WarehouseName = 'Lager München'
+        CompanyCode   = lv_company2 )
 
-      ( warehouse_code = zcl_merp_format_util=>format_warehouse_code( 9 )
-        warehouse_name = 'Hauptlager Kusel'
-        company_code   = '3000' )
+      ( WarehouseName = 'Transitlager Hamburg'
+        CompanyCode   = lv_company2 )
 
-      ( warehouse_code = zcl_merp_format_util=>format_warehouse_code( 10 )
-        warehouse_name = 'Lager Kaiserslautern'
-        company_code   = '3000' )
+      ( WarehouseName = 'Hauptlager Kusel'
+        CompanyCode   = lv_company3 )
+
+      ( WarehouseName = 'Lager Kaiserslautern'
+        CompanyCode   = lv_company3 )
     ).
 
-    fill_audit_fields( CHANGING ct_data = lt_warehouses ).
+    LOOP AT lt_create ASSIGNING FIELD-SYMBOL(<ls_create>).
+      <ls_create>-%cid = |WAREHOUSE_{ sy-tabix }|.
+    ENDLOOP.
 
-    INSERT zmerp_warehouse FROM TABLE @lt_warehouses.
-    write_insert_log( iv_entity_name = 'Warehouse' iv_count = sy-dbcnt out = out ).
+    MODIFY ENTITIES OF zmerp_r_warehouse
+      ENTITY Warehouse
+      CREATE FIELDS ( WarehouseName CompanyCode IsBlocked )
+      WITH lt_create
+      MAPPED DATA(ls_mapped)
+      FAILED DATA(ls_failed)
+      REPORTED DATA(ls_reported).
+
+    IF ls_failed IS INITIAL.
+      COMMIT ENTITIES RESPONSE OF zmerp_r_warehouse
+        FAILED DATA(ls_commit_failed)
+        REPORTED DATA(ls_commit_reported).
+    ENDIF.
+
+    IF ls_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
+      write_failure(
+        iv_text     = '[Warehouse]: Creation failed:'
+        it_messages = VALUE #( BASE VALUE #( FOR rep IN ls_reported-warehouse ( rep-%msg ) )
+                               FOR com IN ls_commit_reported-warehouse ( com-%msg ) )
+        out         = out ).
+      ROLLBACK ENTITIES.
+      RETURN.
+    ENDIF.
+
+    rt_codes = VALUE #( FOR row IN lt_create ( CONV #( ls_mapped-warehouse[ %cid = row-%cid ]-WarehouseCode ) ) ).
+    write_log( iv_text = |[Warehouse]: { lines( rt_codes ) } records created.| out = out ).
   ENDMETHOD.
 
-  METHOD setup_item_groups.
-    DATA(lv_vat19) = zcl_merp_format_util=>format_vat_code( 3 ).
-    DATA(lv_vat7)  = zcl_merp_format_util=>format_vat_code( 2 ).
+  METHOD create_items.
+    TYPES tt_create TYPE TABLE FOR CREATE zmerp_r_item.
 
-    DATA lt_item_groups TYPE zif_merp_constants=>ty_md_itemgr_tt.
+    DATA(lv_grp1) = get_code( it_codes = is_codes-item_groups iv_no = 1 ).
+    DATA(lv_grp2) = get_code( it_codes = is_codes-item_groups iv_no = 2 ).
+    DATA(lv_grp3) = get_code( it_codes = is_codes-item_groups iv_no = 3 ).
+    DATA(lv_grp4) = get_code( it_codes = is_codes-item_groups iv_no = 4 ).
+    DATA(lv_grp5) = get_code( it_codes = is_codes-item_groups iv_no = 5 ).
+    DATA(lv_grp6) = get_code( it_codes = is_codes-item_groups iv_no = 6 ).
 
-    lt_item_groups = VALUE #(
-      ( item_group_code  = zcl_merp_format_util=>format_item_grp_code( 1 )
-        description      = 'Major Home Appliances'
-        default_vat_code = lv_vat19 )
+    " Default VAT code = the default of the item group (setDefaultVatCode sets the same value)
+    DATA(lv_vat7)  = get_code( it_codes = is_codes-vat_rates iv_no = 2 ).
+    DATA(lv_vat19) = get_code( it_codes = is_codes-vat_rates iv_no = 3 ).
 
-      ( item_group_code  = zcl_merp_format_util=>format_item_grp_code( 2 )
-        description      = 'Small Kitchen Appliances'
-        default_vat_code = lv_vat19 )
+    DATA(lv_product) = zif_merp_constants=>c_item_type-product.
+    DATA(lv_service) = zif_merp_constants=>c_item_type-service.
 
-      ( item_group_code  = zcl_merp_format_util=>format_item_grp_code( 3 )
-        description      = 'Consumer Electronics'
-        default_vat_code = lv_vat19 )
-
-      ( item_group_code  = zcl_merp_format_util=>format_item_grp_code( 4 )
-        description      = 'Accessories & Supplies'
-        default_vat_code = lv_vat19 )
-
-      ( item_group_code  = zcl_merp_format_util=>format_item_grp_code( 5 )
-        description      = 'Installation & Support Services'
-        default_vat_code = lv_vat7 )
-
-      ( item_group_code  = zcl_merp_format_util=>format_item_grp_code( 6 )
-        description      = 'Legacy Office Equipment'
-        default_vat_code = lv_vat19
-        is_blocked       = abap_true )
-    ).
-
-    fill_audit_fields( CHANGING ct_data = lt_item_groups ).
-
-    INSERT zmerp_item_group FROM TABLE @lt_item_groups.
-    write_insert_log( iv_entity_name = 'Item Group' iv_count = sy-dbcnt out = out ).
-  ENDMETHOD.
-
-  METHOD setup_items.
-    DATA(lv_grp1) = zcl_merp_format_util=>format_item_grp_code( 1 ).
-    DATA(lv_grp2) = zcl_merp_format_util=>format_item_grp_code( 2 ).
-    DATA(lv_grp3) = zcl_merp_format_util=>format_item_grp_code( 3 ).
-    DATA(lv_grp4) = zcl_merp_format_util=>format_item_grp_code( 4 ).
-    DATA(lv_grp5) = zcl_merp_format_util=>format_item_grp_code( 5 ).
-    DATA(lv_grp6) = zcl_merp_format_util=>format_item_grp_code( 6 ).
-
-    DATA lt_items TYPE zif_merp_constants=>ty_md_item_tt.
-
-    lt_items = VALUE #(
+    DATA(lt_create) = VALUE tt_create(
       " Group 1: Major Home Appliances
-      ( item_code            = zcl_merp_format_util=>format_item_code( 1 )
-        description          = 'Washing Machine Bosch Series 6'
-        article              = 'BSH-WM-600'
-        item_type            = zif_merp_constants=>c_item_type-product
-        item_group_code      = lv_grp1
-        base_unit_of_measure = 'EA' )
-      ( item_code            = zcl_merp_format_util=>format_item_code( 2 )
-        description          = 'Refrigerator Siemens iQ500'
-        article              = 'SIE-RF-500'
-        item_type            = zif_merp_constants=>c_item_type-product
-        item_group_code      = lv_grp1
-        base_unit_of_measure = 'EA' )
-      ( item_code            = zcl_merp_format_util=>format_item_code( 3 )
-        description          = 'Dishwasher Miele G7000'
-        article              = 'MIE-DW-700'
-        item_type            = zif_merp_constants=>c_item_type-product
-        item_group_code      = lv_grp1
-        base_unit_of_measure = 'EA' )
+      ( Description       = 'Washing Machine Bosch Series 6'
+        Article           = 'BSH-WM-600'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp1
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+      ( Description       = 'Refrigerator Siemens iQ500'
+        Article           = 'SIE-RF-500'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp1
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+      ( Description       = 'Dishwasher Miele G7000'
+        Article           = 'MIE-DW-700'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp1
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
 
       " Group 2: Small Kitchen Appliances
-      ( item_code            = zcl_merp_format_util=>format_item_code( 4 )
-        description          = 'Espresso Machine DeLonghi Magnifica'
-        article              = 'DLG-EM-100'
-        item_type            = zif_merp_constants=>c_item_type-product
-        item_group_code      = lv_grp2
-        base_unit_of_measure = 'EA' )
-      ( item_code            = zcl_merp_format_util=>format_item_code( 5 )
-        description          = 'Electric Kettle Philips Daily Collection'
-        article              = 'PHL-EK-200'
-        item_type            = zif_merp_constants=>c_item_type-product
-        item_group_code      = lv_grp2
-        base_unit_of_measure = 'EA' )
-      ( item_code            = zcl_merp_format_util=>format_item_code( 6 )
-        description          = 'Toaster Tefal Express 2-Slot'
-        article              = 'TEF-TS-300'
-        item_type            = zif_merp_constants=>c_item_type-product
-        item_group_code      = lv_grp2
-        base_unit_of_measure = 'EA' )
+      ( Description       = 'Espresso Machine DeLonghi Magnifica'
+        Article           = 'DLG-EM-100'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp2
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+      ( Description       = 'Electric Kettle Philips Daily Collection'
+        Article           = 'PHL-EK-200'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp2
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+      ( Description       = 'Toaster Tefal Express 2-Slot'
+        Article           = 'TEF-TS-300'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp2
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
 
       " Group 3: Consumer Electronics
-      ( item_code            = zcl_merp_format_util=>format_item_code( 7 )
-        description          = 'Smart TV Samsung 55 Inch OLED'
-        article              = 'SAM-TV-55O'
-        item_type            = zif_merp_constants=>c_item_type-product
-        item_group_code      = lv_grp3
-        base_unit_of_measure = 'EA' )
-      ( item_code            = zcl_merp_format_util=>format_item_code( 8 )
-        description          = 'Soundbar Sony HT-S400 2.1ch'
-        article              = 'SNE-SB-400'
-        item_type            = zif_merp_constants=>c_item_type-product
-        item_group_code      = lv_grp3
-        base_unit_of_measure = 'EA' )
-      ( item_code            = zcl_merp_format_util=>format_item_code( 9 )
-        description          = 'Wireless Headphones Bose QuietComfort 45'
-        article              = 'BOS-HP-QC45'
-        item_type            = zif_merp_constants=>c_item_type-product
-        item_group_code      = lv_grp3
-        base_unit_of_measure = 'EA' )
+      ( Description       = 'Smart TV Samsung 55 Inch OLED'
+        Article           = 'SAM-TV-55O'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp3
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+      ( Description       = 'Soundbar Sony HT-S400 2.1ch'
+        Article           = 'SNE-SB-400'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp3
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+      ( Description       = 'Wireless Headphones Bose QuietComfort 45'
+        Article           = 'BOS-HP-QC45'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp3
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
 
       " Group 4: Accessories & Supplies
-      ( item_code            = zcl_merp_format_util=>format_item_code( 10 )
-        description          = 'HDMI Cable 2.0 High Speed (2m)'
-        article              = 'ACC-HDMI-02'
-        item_type            = zif_merp_constants=>c_item_type-product
-        item_group_code      = lv_grp4
-        base_unit_of_measure = 'EA' )
-      ( item_code            = zcl_merp_format_util=>format_item_code( 11 )
-        description          = 'Washing Machine Water Inlet Hose (1.5m)'
-        article              = 'ACC-HOSE-15'
-        item_type            = zif_merp_constants=>c_item_type-product
-        item_group_code      = lv_grp4
-        base_unit_of_measure = 'EA' )
-      ( item_code            = zcl_merp_format_util=>format_item_code( 12 )
-        description          = 'Descaling Solution for Coffee Machines 500ml'
-        article              = 'ACC-DESC-50'
-        item_type            = zif_merp_constants=>c_item_type-product
-        item_group_code      = lv_grp4
-        base_unit_of_measure = 'EA' )
+      ( Description       = 'HDMI Cable 2.0 High Speed (2m)'
+        Article           = 'ACC-HDMI-02'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp4
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+      ( Description       = 'Washing Machine Water Inlet Hose (1.5m)'
+        Article           = 'ACC-HOSE-15'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp4
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+      ( Description       = 'Descaling Solution for Coffee Machines 500ml'
+        Article           = 'ACC-DESC-50'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp4
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
 
       " Group 5: Installation & Support Services
-      ( item_code            = zcl_merp_format_util=>format_item_code( 13 )
-        description          = 'Home Appliance Installation Service'
-        article              = 'SRV-INST-01'
-        item_type            = zif_merp_constants=>c_item_type-service
-        item_group_code      = lv_grp5
-        base_unit_of_measure = 'H' )
-      ( item_code            = zcl_merp_format_util=>format_item_code( 14 )
-        description          = 'Extended Warranty & On-site Repair Service'
-        article              = 'SRV-REPR-02'
-        item_type            = zif_merp_constants=>c_item_type-service
-        item_group_code      = lv_grp5
-        base_unit_of_measure = 'H' )
+      ( Description       = 'Home Appliance Installation Service'
+        Article           = 'SRV-INST-01'
+        ItemTypeCode      = lv_service
+        ItemGroupCode     = lv_grp5
+        DefaultVatCode    = lv_vat7
+        BaseUnitOfMeasure = 'H' )
+      ( Description       = 'Extended Warranty & On-site Repair Service'
+        Article           = 'SRV-REPR-02'
+        ItemTypeCode      = lv_service
+        ItemGroupCode     = lv_grp5
+        DefaultVatCode    = lv_vat7
+        BaseUnitOfMeasure = 'H' )
 
-      " Group 6: Legacy Office Equipment (Blocked)
-      ( item_code            = zcl_merp_format_util=>format_item_code( 15 )
-        description          = 'Siemens Optipoint 500 Entry'
-        article              = 'SIE-TEL-500'
-        item_type            = zif_merp_constants=>c_item_type-product
-        item_group_code      = lv_grp6
-        base_unit_of_measure = 'EA'
-        is_blocked           = abap_true )
+      " Group 6: Legacy Office Equipment (blocked)
+      ( Description       = 'Siemens Optipoint 500 Entry'
+        Article           = 'SIE-TEL-500'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp6
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA'
+        IsBlocked         = abap_true )
 
-      ( item_code            = zcl_merp_format_util=>format_item_code( 16 )
-        description          = 'Express Delivery and Connection Service'
-        article              = 'SRV-DELIV-03'
-        item_type            = zif_merp_constants=>c_item_type-service
-        item_group_code      = lv_grp5
-        base_unit_of_measure = 'EA' )
+      ( Description       = 'Express Delivery and Connection Service'
+        Article           = 'SRV-DELIV-03'
+        ItemTypeCode      = lv_service
+        ItemGroupCode     = lv_grp5
+        DefaultVatCode    = lv_vat7
+        BaseUnitOfMeasure = 'EA' )
     ).
 
-    " Default VAT code of each item comes from its item group
-    DATA lt_grp_keys TYPE zif_merp_md_item_group_sel=>tt_item_group_keys.
-    lt_grp_keys = VALUE #( FOR GROUPS grp OF item IN lt_items GROUP BY item-item_group_code ( ItemGroupCode = grp ) ).
-
-    DATA(lt_item_groups) = NEW zcl_merp_md_item_group_sel( )->zif_merp_md_item_group_sel~read_item_groups( lt_grp_keys ).
-
-    LOOP AT lt_items ASSIGNING FIELD-SYMBOL(<ls_item>).
-      ASSIGN lt_item_groups[ ItemGroupCode = <ls_item>-item_group_code ] TO FIELD-SYMBOL(<ls_grp>).
-      IF sy-subrc = 0.
-        <ls_item>-default_vat_code = <ls_grp>-DefaultVatCode.
-      ENDIF.
+    LOOP AT lt_create ASSIGNING FIELD-SYMBOL(<ls_create>).
+      <ls_create>-%cid = |ITEM_{ sy-tabix }|.
     ENDLOOP.
 
-    fill_audit_fields( CHANGING ct_data = lt_items ).
+    MODIFY ENTITIES OF zmerp_r_item
+      ENTITY Item
+      CREATE FIELDS ( Description Article ItemTypeCode ItemGroupCode DefaultVatCode BaseUnitOfMeasure IsBlocked )
+      WITH lt_create
+      MAPPED DATA(ls_mapped)
+      FAILED DATA(ls_failed)
+      REPORTED DATA(ls_reported).
 
-    INSERT zmerp_item FROM TABLE @lt_items.
-    write_insert_log( iv_entity_name = 'Item' iv_count = sy-dbcnt out = out ).
+    IF ls_failed IS INITIAL.
+      COMMIT ENTITIES RESPONSE OF zmerp_r_item
+        FAILED DATA(ls_commit_failed)
+        REPORTED DATA(ls_commit_reported).
+    ENDIF.
+
+    IF ls_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
+      write_failure(
+        iv_text     = '[Item]: Creation failed:'
+        it_messages = VALUE #( BASE VALUE #( FOR rep IN ls_reported-item ( rep-%msg ) )
+                               FOR com IN ls_commit_reported-item ( com-%msg ) )
+        out         = out ).
+      ROLLBACK ENTITIES.
+      RETURN.
+    ENDIF.
+
+    rt_codes = VALUE #( FOR row IN lt_create ( CONV #( ls_mapped-item[ %cid = row-%cid ]-ItemCode ) ) ).
+    write_log( iv_text = |[Item]: { lines( rt_codes ) } records created.| out = out ).
   ENDMETHOD.
 
-  METHOD setup_business_partners.
-    DATA lt_bp TYPE zif_merp_constants=>ty_md_bp_tt.
+  METHOD create_business_partners.
+    TYPES tt_create TYPE TABLE FOR CREATE zmerp_r_bus_partner.
 
-    lt_bp = VALUE #(
+    DATA(lt_create) = VALUE tt_create(
       " --- Suppliers ---
-      ( partner_code = zcl_merp_format_util=>format_bp_code( 1 )
-        partner_name = 'Bosch-Siemens Hausgeräte GmbH'
-        is_customer  = abap_false
-        is_supplier  = abap_true
-        tax_number   = 'DE129323400'
-        address      = 'Carl-Wery-Straße 34'
-        city         = 'München'
-        country      = 'DE'
-        phone        = '+49 89 459001'
-        email        = 'contact@bshg.com' )
+      ( PartnerName = 'Bosch-Siemens Hausgeräte GmbH'
+        IsSupplier  = abap_true
+        TaxNumber   = 'DE129323400'
+        Address     = 'Carl-Wery-Straße 34'
+        City        = 'München'
+        Country     = 'DE'
+        Phone       = '+49 89 459001'
+        Email       = 'contact@bshg.com' )
 
-      ( partner_code = zcl_merp_format_util=>format_bp_code( 2 )
-        partner_name = 'Miele & Cie. KG'
-        is_customer  = abap_false
-        is_supplier  = abap_true
-        tax_number   = 'DE126788901'
-        address      = 'Carl-Miele-Straße 29'
-        city         = 'Gütersloh'
-        country      = 'DE'
-        phone        = '+49 5241 890'
-        email        = 'info@miele.de' )
+      ( PartnerName = 'Miele & Cie. KG'
+        IsSupplier  = abap_true
+        TaxNumber   = 'DE126788901'
+        Address     = 'Carl-Miele-Straße 29'
+        City        = 'Gütersloh'
+        Country     = 'DE'
+        Phone       = '+49 5241 890'
+        Email       = 'info@miele.de' )
 
-      ( partner_code = zcl_merp_format_util=>format_bp_code( 3 )
-        partner_name = 'DeLonghi Deutschland GmbH'
-        is_customer  = abap_false
-        is_supplier  = abap_true
-        tax_number   = 'DE811234567'
-        address      = 'Carl-Ulrich-Straße 4'
-        city         = 'Neu-Isenburg'
-        country      = 'DE'
-        phone        = '+49 6102 5990'
-        email        = 'service@delonghi.de' )
+      ( PartnerName = 'DeLonghi Deutschland GmbH'
+        IsSupplier  = abap_true
+        TaxNumber   = 'DE811234567'
+        Address     = 'Carl-Ulrich-Straße 4'
+        City        = 'Neu-Isenburg'
+        Country     = 'DE'
+        Phone       = '+49 6102 5990'
+        Email       = 'service@delonghi.de' )
 
-      ( partner_code = zcl_merp_format_util=>format_bp_code( 4 )
-        partner_name = 'Samsung Electronics GmbH'
-        is_customer  = abap_false
-        is_supplier  = abap_true
-        tax_number   = 'DE113546789'
-        address      = 'Am Kronberger Hang 6'
-        city         = 'Schwalbach am Taunus'
-        country      = 'DE'
-        phone        = '+49 6196 660'
-        email        = 'info@samsung.de' )
+      ( PartnerName = 'Samsung Electronics GmbH'
+        IsSupplier  = abap_true
+        TaxNumber   = 'DE113546789'
+        Address     = 'Am Kronberger Hang 6'
+        City        = 'Schwalbach am Taunus'
+        Country     = 'DE'
+        Phone       = '+49 6196 660'
+        Email       = 'info@samsung.de' )
 
-      ( partner_code = zcl_merp_format_util=>format_bp_code( 5 )
-        partner_name = 'Sony Europe B.V. Zweigniederlassung Deutschland'
-        is_customer  = abap_false
-        is_supplier  = abap_true
-        tax_number   = 'DE815678910'
-        address      = 'Kemperplatz 1'
-        city         = 'Berlin'
-        country      = 'DE'
-        phone        = '+49 30 585800'
-        email        = 'info@sony.de' )
+      ( PartnerName = 'Sony Europe B.V. Zweigniederlassung Deutschland'
+        IsSupplier  = abap_true
+        TaxNumber   = 'DE815678910'
+        Address     = 'Kemperplatz 1'
+        City        = 'Berlin'
+        Country     = 'DE'
+        Phone       = '+49 30 585800'
+        Email       = 'info@sony.de' )
 
       " --- Customers ---
-      ( partner_code = zcl_merp_format_util=>format_bp_code( 6 )
-        partner_name = 'Media-Saturn Retail Group GmbH'
-        is_customer  = abap_true
-        is_supplier  = abap_false
-        tax_number   = 'DE130123456'
-        address      = 'Media-Saturn-Str. 1'
-        city         = 'Ingolstadt'
-        country      = 'DE'
-        phone        = '+49 841 6340'
-        email        = 'einkauf@mediamarkt.de' )
+      ( PartnerName = 'Media-Saturn Retail Group GmbH'
+        IsCustomer  = abap_true
+        TaxNumber   = 'DE130123456'
+        Address     = 'Media-Saturn-Str. 1'
+        City        = 'Ingolstadt'
+        Country     = 'DE'
+        Phone       = '+49 841 6340'
+        Email       = 'einkauf@mediamarkt.de' )
 
-      ( partner_code = zcl_merp_format_util=>format_bp_code( 7 )
-        partner_name = 'Expert SE'
-        is_customer  = abap_true
-        is_supplier  = abap_false
-        tax_number   = 'DE115678123'
-        address      = 'Bayernstraße 4'
-        city         = 'Langenhagen'
-        country      = 'DE'
-        phone        = '+49 511 78080'
-        email        = 'zentrale@expert.de' )
+      ( PartnerName = 'Expert SE'
+        IsCustomer  = abap_true
+        TaxNumber   = 'DE115678123'
+        Address     = 'Bayernstraße 4'
+        City        = 'Langenhagen'
+        Country     = 'DE'
+        Phone       = '+49 511 78080'
+        Email       = 'zentrale@expert.de' )
 
-      ( partner_code = zcl_merp_format_util=>format_bp_code( 8 )
-        partner_name = 'Euronics Deutschland eG'
-        is_customer  = abap_true
-        is_supplier  = abap_false
-        tax_number   = 'DE147890123'
-        address      = 'Berliner Straße 11'
-        city         = 'Ditzingen'
-        country      = 'DE'
-        phone        = '+49 7156 9280'
-        email        = 'info@euronics.de' )
+      ( PartnerName = 'Euronics Deutschland eG'
+        IsCustomer  = abap_true
+        TaxNumber   = 'DE147890123'
+        Address     = 'Berliner Straße 11'
+        City        = 'Ditzingen'
+        Country     = 'DE'
+        Phone       = '+49 7156 9280'
+        Email       = 'info@euronics.de' )
 
-      ( partner_code = zcl_merp_format_util=>format_bp_code( 9 )
-        partner_name = 'Elektro-Service Müller GmbH'
-        is_customer  = abap_true
-        is_supplier  = abap_false
-        tax_number   = 'DE289012345'
-        address      = 'Trierer Straße 12'
-        city         = 'Kusel'
-        country      = 'DE'
-        phone        = '+49 6381 1234'
-        email        = 'service@elektro-mueller.de' )
+      ( PartnerName = 'Elektro-Service Müller GmbH'
+        IsCustomer  = abap_true
+        TaxNumber   = 'DE289012345'
+        Address     = 'Trierer Straße 12'
+        City        = 'Kusel'
+        Country     = 'DE'
+        Phone       = '+49 6381 1234'
+        Email       = 'service@elektro-mueller.de' )
 
-      ( partner_code = zcl_merp_format_util=>format_bp_code( 10 )
-        partner_name = 'Küchenstudio Schmidt GmbH'
-        is_customer  = abap_true
-        is_supplier  = abap_false
-        tax_number   = 'DE301234567'
-        address      = 'Zeil 45'
-        city         = 'Frankfurt am Main'
-        country      = 'DE'
-        phone        = '+49 69 987654'
-        email        = 'vertrieb@kuechen-schmidt.de' )
+      ( PartnerName = 'Küchenstudio Schmidt GmbH'
+        IsCustomer  = abap_true
+        TaxNumber   = 'DE301234567'
+        Address     = 'Zeil 45'
+        City        = 'Frankfurt am Main'
+        Country     = 'DE'
+        Phone       = '+49 69 987654'
+        Email       = 'vertrieb@kuechen-schmidt.de' )
 
       " --- Both ---
-      ( partner_code = zcl_merp_format_util=>format_bp_code( 11 )
-        partner_name = 'ElectronicPartner GmbH & Co. KG'
-        is_customer  = abap_true
-        is_supplier  = abap_true
-        tax_number   = 'DE119345678'
-        address      = 'Mündelheimer Weg 40'
-        city         = 'Düsseldorf'
-        country      = 'DE'
-        phone        = '+49 211 41560'
-        email        = 'partner@electronicpartner.de' )
+      ( PartnerName = 'ElectronicPartner GmbH & Co. KG'
+        IsCustomer  = abap_true
+        IsSupplier  = abap_true
+        TaxNumber   = 'DE119345678'
+        Address     = 'Mündelheimer Weg 40'
+        City        = 'Düsseldorf'
+        Country     = 'DE'
+        Phone       = '+49 211 41560'
+        Email       = 'partner@electronicpartner.de' )
 
-      ( partner_code = zcl_merp_format_util=>format_bp_code( 12 )
-        partner_name = 'Conrad Electronic SE'
-        is_customer  = abap_true
-        is_supplier  = abap_true
-        tax_number   = 'DE133123789'
-        address      = 'Klaus-Conrad-Straße 1'
-        city         = 'Hirschau'
-        country      = 'DE'
-        phone        = '+49 9622 300'
-        email        = 'b2b@conrad.de' )
+      ( PartnerName = 'Conrad Electronic SE'
+        IsCustomer  = abap_true
+        IsSupplier  = abap_true
+        TaxNumber   = 'DE133123789'
+        Address     = 'Klaus-Conrad-Straße 1'
+        City        = 'Hirschau'
+        Country     = 'DE'
+        Phone       = '+49 9622 300'
+        Email       = 'b2b@conrad.de' )
 
-      ( partner_code = zcl_merp_format_util=>format_bp_code( 13 )
-        partner_name = 'Radio Shack GmbH'
-        is_customer  = abap_true
-        is_supplier  = abap_true
-        tax_number   = 'DE149990123'
-        address      = 'Hanauer Landstraße 150'
-        city         = 'Frankfurt am Main'
-        country      = 'DE'
-        phone        = '+49 69 450012'
-        email        = 'info@radioshack.de'
-        is_blocked   = abap_true )
+      ( PartnerName = 'Radio Shack GmbH'
+        IsCustomer  = abap_true
+        IsSupplier  = abap_true
+        TaxNumber   = 'DE149990123'
+        Address     = 'Hanauer Landstraße 150'
+        City        = 'Frankfurt am Main'
+        Country     = 'DE'
+        Phone       = '+49 69 450012'
+        Email       = 'info@radioshack.de'
+        IsBlocked   = abap_true )
     ).
 
-    fill_audit_fields( CHANGING ct_data = lt_bp ).
+    LOOP AT lt_create ASSIGNING FIELD-SYMBOL(<ls_create>).
+      <ls_create>-%cid = |PARTNER_{ sy-tabix }|.
+    ENDLOOP.
 
-    INSERT zmerp_bus_part FROM TABLE @lt_bp.
-    write_insert_log( iv_entity_name = 'Business Partner' iv_count = sy-dbcnt out = out ).
+    MODIFY ENTITIES OF zmerp_r_bus_partner
+      ENTITY BusinessPartner
+      CREATE FIELDS ( PartnerName IsCustomer IsSupplier TaxNumber Address City Country Phone Email IsBlocked )
+      WITH lt_create
+      MAPPED DATA(ls_mapped)
+      FAILED DATA(ls_failed)
+      REPORTED DATA(ls_reported).
+
+    IF ls_failed IS INITIAL.
+      COMMIT ENTITIES RESPONSE OF zmerp_r_bus_partner
+        FAILED DATA(ls_commit_failed)
+        REPORTED DATA(ls_commit_reported).
+    ENDIF.
+
+    IF ls_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
+      write_failure(
+        iv_text     = '[Business Partner]: Creation failed:'
+        it_messages = VALUE #( BASE VALUE #( FOR rep IN ls_reported-businesspartner ( rep-%msg ) )
+                               FOR com IN ls_commit_reported-businesspartner ( com-%msg ) )
+        out         = out ).
+      ROLLBACK ENTITIES.
+      RETURN.
+    ENDIF.
+
+    rt_codes = VALUE #( FOR row IN lt_create ( CONV #( ls_mapped-businesspartner[ %cid = row-%cid ]-PartnerCode ) ) ).
+    write_log( iv_text = |[Business Partner]: { lines( rt_codes ) } records created.| out = out ).
+  ENDMETHOD.
+
+  METHOD setup_master_data.
+    " One commit per level: the validations of a level read the master data
+    " of the previous levels from the database. A failed level stops the setup.
+    rs_codes-companies = create_company_codes( out ).
+    IF rs_codes-companies IS INITIAL.
+      CLEAR rs_codes.
+      RETURN.
+    ENDIF.
+
+    rs_codes-vat_rates = create_vat_rates( out ).
+    IF rs_codes-vat_rates IS INITIAL.
+      CLEAR rs_codes.
+      RETURN.
+    ENDIF.
+
+    rs_codes-item_groups = create_item_groups( is_codes = rs_codes out = out ).
+    IF rs_codes-item_groups IS INITIAL.
+      CLEAR rs_codes.
+      RETURN.
+    ENDIF.
+
+    rs_codes-warehouses = create_warehouses( is_codes = rs_codes out = out ).
+    IF rs_codes-warehouses IS INITIAL.
+      CLEAR rs_codes.
+      RETURN.
+    ENDIF.
+
+    rs_codes-items = create_items( is_codes = rs_codes out = out ).
+    IF rs_codes-items IS INITIAL.
+      CLEAR rs_codes.
+      RETURN.
+    ENDIF.
+
+    rs_codes-partners = create_business_partners( out ).
+    IF rs_codes-partners IS INITIAL.
+      CLEAR rs_codes.
+      RETURN.
+    ENDIF.
+
+    " Number range levels follow the created master data; committed before the documents:
+    " number assignment (number_get) must not wait for our own uncommitted interval changes
+    zcl_merp_num_range_util=>sync_master_intervals_from_db( ).
+    COMMIT WORK.
   ENDMETHOD.
 
   METHOD setup_documents.
     " Readable amounts: every line (also of a partial receipt) has a net amount that is a multiple of 100,
-    " so VAT (19% / 7%) and gross amounts have no cents. The only exception is the TV in PO 1:
-    " it shows how the last receipt closes the rounding cents of a purchase order item.
-    "   PO line 3 x 1199.99 at 19% VAT = 3599.97 net, VAT 683.9943 -> 683.99
-    "   GR 1:  2 TVs                   = 2399.98 net, VAT 455.9962 -> 456.00
-    "   GR 2:  last TV                 = 1199.99 net, VAT 227.9981 -> 228.00 by calculation,
-    "                                    but takes the open VAT 683.99 - 456.00 = 227.99 -> PO item closed to 0.00
+    " so VAT (19% / 7%) and gross amounts have no cents. Two exceptions show how the last receipt closes
+    " the rounding cents of a purchase order item:
+    "   PO 1: TV 3 x 1199.99 at 19% VAT = 3599.97 net, VAT 683.9943 -> 683.99
+    "     GR 1:  2 TVs = 2399.98 net, VAT 455.9962 -> 456.00
+    "     GR 2:  last TV = 1199.99 net, VAT 227.9981 -> 228.00 by calculation,
+    "            but takes the open VAT 683.99 - 456.00 = 227.99 -> PO item closed to 0.00
+    "   PO 7: TV 4 x 599.99 at 19% VAT = 2399.96 net, VAT 455.9924 -> 455.99
+    "     GR 1:  2 TVs = 1199.98 net, VAT 228.00;  GR 2: 1 TV = 599.99 net, VAT 114.00
+    "     The last TV stays open for a live demo: 114.00 by calculation, takes 455.99 - 342.00 = 113.99
     " Units: EA for goods, H for services charged by the hour (units of the SAP standard).
 
     " PO 1 (1000, Samsung): received completely by two goods receipts -> 'Completed'
     DATA(lv_po1) = create_purchase_order(
-      is_po = VALUE #( company_code = '1000' warehouse_no = 1 partner_no = 4
+      is_po = VALUE #( company_no   = 1      warehouse_no = 1 partner_no = 4
                        days_ago     = 3      delivery_in  = 2
                        responsible  = 'SCHMIDT_A'
                        remarks      = 'TV season stock'
@@ -706,7 +858,8 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
                        lines        = VALUE #( ( item_no = 7  quantity = 3  price = '1199.99' )
                                                ( item_no = 10 quantity = 10 price = '10.00' )
                                                ( item_no = 14 quantity = 3  price = '100.00' ) ) )
-      out   = out ).
+      is_codes = is_codes
+      out      = out ).
 
     create_goods_receipt(
       is_gr = VALUE #( po_uuid     = lv_po1
@@ -716,7 +869,8 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
                        post        = abap_true
                        lines       = VALUE #( ( item_no = 7  quantity = 2 )
                                               ( item_no = 14 quantity = 2 ) ) )
-      out   = out ).
+      is_codes = is_codes
+      out      = out ).
 
     create_goods_receipt(
       is_gr = VALUE #( po_uuid     = lv_po1
@@ -724,11 +878,12 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
                        responsible = 'SCHMIDT_A'
                        remarks     = 'Delivery 2 of 2: last TV with warranty closes the cents'
                        post        = abap_true )
-      out   = out ).
+      is_codes = is_codes
+      out      = out ).
 
     " PO 2 (1000, Bosch): partially received -> 'In Delivery' (2 washing machines and 2 h installation open)
     DATA(lv_po2) = create_purchase_order(
-      is_po = VALUE #( company_code = '1000' warehouse_no = 2 partner_no = 1
+      is_po = VALUE #( company_no   = 1      warehouse_no = 2 partner_no = 1
                        days_ago     = 2      delivery_in  = 5
                        responsible  = 'MUELLER_M'
                        remarks      = 'Large appliances with installation'
@@ -737,7 +892,8 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
                                                ( item_no = 2  quantity = 2  price = '800.00' )
                                                ( item_no = 11 quantity = 10 price = '10.00' )
                                                ( item_no = 13 quantity = 4  price = '50.00' ) ) )
-      out   = out ).
+      is_codes = is_codes
+      out      = out ).
 
     create_goods_receipt(
       is_gr = VALUE #( po_uuid     = lv_po2
@@ -747,12 +903,13 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
                        post        = abap_true
                        lines       = VALUE #( ( item_no = 1  quantity = 3 )
                                               ( item_no = 13 quantity = 2 ) ) )
-      out   = out ).
+      is_codes = is_codes
+      out      = out ).
 
     " PO 3 (1000, DeLonghi): released; the goods receipt is prepared but not posted yet
     "   -> purchase order 'Approved', goods receipt 'New'
     DATA(lv_po3) = create_purchase_order(
-      is_po = VALUE #( company_code = '1000' warehouse_no = 1 partner_no = 3
+      is_po = VALUE #( company_no   = 1      warehouse_no = 1 partner_no = 3
                        days_ago     = 1      delivery_in  = 4
                        responsible  = 'MUELLER_M'
                        remarks      = 'Coffee machines and supplies'
@@ -761,7 +918,8 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
                                                ( item_no = 12 quantity = 10 price = '10.00' )
                                                ( item_no = 5  quantity = 10 price = '30.00' )
                                                ( item_no = 16 quantity = 1  price = '100.00' ) ) )
-      out   = out ).
+      is_codes = is_codes
+      out      = out ).
 
     create_goods_receipt(
       is_gr = VALUE #( po_uuid     = lv_po3
@@ -769,11 +927,12 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
                        responsible = 'MUELLER_M'
                        remarks     = 'Goods arrived, receipt to be checked and posted'
                        post        = abap_false )
-      out   = out ).
+      is_codes = is_codes
+      out      = out ).
 
     " PO 4 (2000, Conrad): released, nothing received -> 'Approved'
     create_purchase_order(
-      is_po = VALUE #( company_code = '2000' warehouse_no = 6 partner_no = 12
+      is_po = VALUE #( company_no   = 2      warehouse_no = 6 partner_no = 12
                        days_ago     = 2      delivery_in  = 6
                        responsible  = 'FISCHER_K'
                        remarks      = 'Audio assortment for Hamburg'
@@ -782,18 +941,20 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
                                                ( item_no = 8  quantity = 4  price = '250.00' )
                                                ( item_no = 10 quantity = 20 price = '10.00' )
                                                ( item_no = 16 quantity = 1  price = '100.00' ) ) )
-      out   = out ).
+      is_codes = is_codes
+      out      = out ).
 
     " PO 5 (2000, Sony): received completely by one goods receipt -> 'Completed' (stock in Munich)
     DATA(lv_po5) = create_purchase_order(
-      is_po = VALUE #( company_code = '2000' warehouse_no = 7 partner_no = 5
+      is_po = VALUE #( company_no   = 2      warehouse_no = 7 partner_no = 5
                        days_ago     = 4      delivery_in  = 1
                        responsible  = 'FISCHER_K'
                        remarks      = 'Audio stock for Munich'
                        release      = abap_true
                        lines        = VALUE #( ( item_no = 8 quantity = 6 price = '250.00' )
                                                ( item_no = 9 quantity = 5 price = '300.00' ) ) )
-      out   = out ).
+      is_codes = is_codes
+      out      = out ).
 
     create_goods_receipt(
       is_gr = VALUE #( po_uuid     = lv_po5
@@ -801,18 +962,58 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
                        responsible = 'FISCHER_K'
                        remarks     = 'Complete delivery'
                        post        = abap_true )
-      out   = out ).
+      is_codes = is_codes
+      out      = out ).
 
     " PO 6 (3000, ElectronicPartner): not released -> 'New'
     create_purchase_order(
-      is_po = VALUE #( company_code = '3000' warehouse_no = 9 partner_no = 11
+      is_po = VALUE #( company_no   = 3      warehouse_no = 9 partner_no = 11
                        days_ago     = 1      delivery_in  = 7
                        responsible  = 'WEBER_J'
                        remarks      = 'Modevi starter set, waiting for approval'
                        release      = abap_false
                        lines        = VALUE #( ( item_no = 6 quantity = 10 price = '40.00' )
                                                ( item_no = 5 quantity = 10 price = '30.00' ) ) )
-      out   = out ).
+      is_codes = is_codes
+      out      = out ).
+
+    " PO 7 (3000, Samsung): two partial receipts -> 'In Delivery'
+    "   (1 TV, 1 cable and 1 h warranty stay open for a live demo of the cents case, see above)
+    DATA(lv_po7) = create_purchase_order(
+      is_po = VALUE #( company_no   = 3      warehouse_no = 9 partner_no = 4
+                       days_ago     = 1      delivery_in  = 7
+                       responsible  = 'WEBER_J'
+                       remarks      = 'TV season stock'
+                       release      = abap_true
+                       lines        = VALUE #( ( item_no = 7  quantity = 4  price = '599.99' )
+                                               ( item_no = 10 quantity = 4  price = '10.00' )
+                                               ( item_no = 14 quantity = 4  price = '100.00' ) ) )
+      is_codes = is_codes
+      out      = out ).
+
+    create_goods_receipt(
+      is_gr = VALUE #( po_uuid     = lv_po7
+                       days_ago    = 1
+                       responsible = 'WEBER_J'
+                       remarks     = 'Delivery 1: 2 TVs, 2 cables and 2 h warranty'
+                       post        = abap_true
+                       lines       = VALUE #( ( item_no = 7  quantity = 2 )
+                                              ( item_no = 10 quantity = 2 )
+                                              ( item_no = 14 quantity = 2 ) ) )
+      is_codes = is_codes
+      out      = out ).
+
+    create_goods_receipt(
+      is_gr = VALUE #( po_uuid     = lv_po7
+                       days_ago    = 0
+                       responsible = 'WEBER_J'
+                       remarks     = 'Delivery 2: 1 TV, 1 cable and 1 h warranty; the rest follows'
+                       post        = abap_true
+                       lines       = VALUE #( ( item_no = 7  quantity = 1 )
+                                              ( item_no = 10 quantity = 1 )
+                                              ( item_no = 14 quantity = 1 ) ) )
+      is_codes = is_codes
+      out      = out ).
 
     " Summary: resulting purchase order statuses
     SELECT document_number, status
@@ -826,8 +1027,10 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
+
   METHOD create_purchase_order.
-    DATA(lv_today) = cl_abap_context_info=>get_system_date( ).
+    DATA(lv_today)        = cl_abap_context_info=>get_system_date( ).
+    DATA(lv_company_code) = get_code( it_codes = is_codes-companies iv_no = is_po-company_no ).
 
     " 1. Header and items: currency, item defaults and amounts are derived by the purchase order logic
     MODIFY ENTITIES OF zmerp_r_purchaseorder
@@ -835,9 +1038,9 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
         CREATE FIELDS ( CompanyCode WarehouseCode BusinessPartnerCode DocumentDate DeliveryDate
                         ResponsiblePerson Remarks )
         WITH VALUE #( ( %cid                = 'PO'
-                        CompanyCode         = is_po-company_code
-                        WarehouseCode       = zcl_merp_format_util=>format_warehouse_code( is_po-warehouse_no )
-                        BusinessPartnerCode = zcl_merp_format_util=>format_bp_code( is_po-partner_no )
+                        CompanyCode         = lv_company_code
+                        WarehouseCode       = get_code( it_codes = is_codes-warehouses iv_no = is_po-warehouse_no )
+                        BusinessPartnerCode = get_code( it_codes = is_codes-partners iv_no = is_po-partner_no )
                         DocumentDate        = CONV d( lv_today - is_po-days_ago )
                         DeliveryDate        = CONV d( lv_today + is_po-delivery_in )
                         ResponsiblePerson   = is_po-responsible
@@ -847,7 +1050,7 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
         WITH VALUE #( ( %cid_ref = 'PO'
                         %target  = VALUE #( FOR po_line IN is_po-lines INDEX INTO lv_index
                                             ( %cid     = |PO_ITEM_{ lv_index }|
-                                              ItemCode = zcl_merp_format_util=>format_item_code( po_line-item_no )
+                                              ItemCode = get_code( it_codes = is_codes-items iv_no = po_line-item_no )
                                               Quantity = po_line-quantity
                                               Price    = po_line-price ) ) ) )
       MAPPED DATA(ls_mapped).
@@ -860,7 +1063,7 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
 
     IF ls_save_failed IS NOT INITIAL OR rv_po_uuid IS INITIAL.
       write_failure(
-        iv_text     = |[Purchase Order]: Creation for company { is_po-company_code } failed:|
+        iv_text     = |[Purchase Order]: Creation for company { lv_company_code } failed:|
         it_messages = VALUE #( BASE VALUE #( FOR save_hdr IN ls_save_reported-purchaseorder ( save_hdr-%msg ) )
                                FOR save_itm IN ls_save_reported-purchaseorderitem ( save_itm-%msg ) )
         out         = out ).
@@ -886,7 +1089,7 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
 
       IF ls_release_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
         write_failure(
-          iv_text     = |[Purchase Order]: Release for company { is_po-company_code } failed:|
+          iv_text     = |[Purchase Order]: Release for company { lv_company_code } failed:|
           it_messages = VALUE #( BASE VALUE #( FOR rel_hdr IN ls_release_reported-purchaseorder ( rel_hdr-%msg ) )
                                  FOR com_hdr IN ls_commit_reported-purchaseorder ( com_hdr-%msg ) )
           out         = out ).
@@ -928,7 +1131,7 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
     " 2. Partial receipt: the listed items get the given quantity, all others keep the open quantity
     IF is_gr-lines IS NOT INITIAL AND lv_gr_uuid IS NOT INITIAL.
       DATA(lt_quantities) = VALUE tt_quantities(
-        FOR gr_line IN is_gr-lines ( item_code = zcl_merp_format_util=>format_item_code( gr_line-item_no )
+        FOR gr_line IN is_gr-lines ( item_code = get_code( it_codes = is_codes-items iv_no = gr_line-item_no )
                                      quantity  = gr_line-quantity ) ).
 
       READ ENTITIES OF zmerp_r_goodsreceipt
@@ -996,6 +1199,7 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
                          |status { ls_gr-status }; PO status { ls_gr-po_status }.|
                out     = out ).
   ENDMETHOD.
+
 
 ENDCLASS.
 

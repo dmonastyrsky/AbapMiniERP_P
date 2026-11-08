@@ -3,8 +3,10 @@ CLASS lhc_zmerp_r_bus_partner DEFINITION INHERITING FROM cl_abap_behavior_handle
   PRIVATE SECTION.
     CONSTANTS:
       c_val_name TYPE string VALUE 'VALIDATE_PARTNER_NAME',
-      c_val_role TYPE string VALUE 'VALIDATE_PARTNER_ROLE'.
+      c_val_role TYPE string VALUE 'VALIDATE_PARTNER_ROLE',
+      c_val_cntr TYPE string VALUE 'VALIDATE_COUNTRY'.
 
+    " --- Access and state ---
     "! Evaluates global authorizations for CUD operations.
     METHODS get_global_authorizations FOR GLOBAL AUTHORIZATION
       IMPORTING REQUEST requested_authorizations FOR BusinessPartner
@@ -17,27 +19,31 @@ CLASS lhc_zmerp_r_bus_partner DEFINITION INHERITING FROM cl_abap_behavior_handle
         keys   REQUEST requested_features FOR BusinessPartner
       RESULT   result.
 
-    "! Validates mandatory fields before saving.
-    METHODS validateMandatoryFields FOR VALIDATE ON SAVE
-      IMPORTING keys FOR BusinessPartner~validateMandatoryFields.
+    "! Pre-checks deletion dependencies in referenced entities.
+    METHODS precheck_delete FOR PRECHECK
+      IMPORTING keys FOR DELETE BusinessPartner.
 
-    "! Clears validation messages for fields that have been filled in.
-    METHODS clearMessagesForFilledFields FOR DETERMINE ON MODIFY
-      IMPORTING keys FOR BusinessPartner~clearMessagesForFilledFields.
-
+    " --- Numbering ---
     "! Assigns early numbers for new Business Partner entities.
     METHODS earlynumbering_create FOR NUMBERING
       IMPORTING entities FOR CREATE BusinessPartner.
 
-    "! Pre-checks deletion dependencies in referenced entities.
-    METHODS precheck_delete FOR PRECHECK
-      IMPORTING keys FOR DELETE BusinessPartner.
+    " --- Validations ---
+    "! Validates mandatory fields before saving.
+    METHODS validateMandatoryFields FOR VALIDATE ON SAVE
+      IMPORTING keys FOR BusinessPartner~validateMandatoryFields.
+
+    " --- Clearing of validation messages ---
+    "! Clears validation messages for fields that have been filled in.
+    METHODS clearMessagesForFilledFields FOR DETERMINE ON MODIFY
+      IMPORTING keys FOR BusinessPartner~clearMessagesForFilledFields.
 
 ENDCLASS.
 
 
 CLASS lhc_zmerp_r_bus_partner IMPLEMENTATION.
 
+  " --- Access and state ---
   METHOD get_global_authorizations.
     IF requested_authorizations-%create = if_abap_behv=>mk-on.
       result-%create = if_abap_behv=>auth-allowed.
@@ -82,93 +88,41 @@ CLASS lhc_zmerp_r_bus_partner IMPLEMENTATION.
     ).
   ENDMETHOD.
 
-  METHOD validateMandatoryFields.
-    DATA lv_has_error TYPE abap_bool.
+  METHOD precheck_delete.
+    " Usages of all keys in one selection (the selector skips initial keys)
+    DATA(lt_usages) = NEW zcl_merp_md_bus_partner_sel( )->zif_merp_md_bus_partner_sel~read_usages(
+      VALUE #( FOR key IN keys ( PartnerCode = key-PartnerCode ) ) ).
 
-    " Clear the messages of the previous validation run
-    reported-businesspartner = VALUE #(
-      BASE reported-businesspartner
-      FOR key IN keys
-      ( %tky        = key-%tky
-        %state_area = c_val_name )
-      ( %tky        = key-%tky
-        %state_area = c_val_role )
-    ).
-
-    READ ENTITIES OF zmerp_r_bus_partner IN LOCAL MODE
-      ENTITY BusinessPartner
-      FIELDS ( PartnerName IsCustomer IsSupplier )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_partners).
-
-    IF lt_partners IS INITIAL.
+    IF lt_usages IS INITIAL.
       RETURN.
     ENDIF.
 
-    LOOP AT lt_partners REFERENCE INTO DATA(lr_partner).
-      lv_has_error = abap_false.
+    LOOP AT keys REFERENCE INTO DATA(lr_key).
+      IF NOT line_exists( lt_usages[ PartnerCode = lr_key->PartnerCode ] ).
+        CONTINUE.
+      ENDIF.
 
-      " 1. Name: mandatory
-      IF lr_partner->PartnerName IS INITIAL.
-        lv_has_error = abap_true.
+      APPEND VALUE #(
+        %tky        = lr_key->%tky
+        %fail-cause = if_abap_behv=>cause-dependency
+      ) TO failed-businesspartner.
+
+      " One message per using entity (sorted table: WHERE uses the table key)
+      LOOP AT lt_usages REFERENCE INTO DATA(lr_usage) WHERE PartnerCode = lr_key->PartnerCode.
         APPEND VALUE #(
-          %tky                 = lr_partner->%tky
-          %state_area          = c_val_name
+          %tky                 = lr_key->%tky
+          %element-PartnerCode = if_abap_behv=>mk-on
           %msg                 = NEW zcx_merp_md(
-                                   textid   = zcx_merp_md=>enter_partner_name
+                                   textid   = zcx_merp_md=>business_partner_in_use
+                                   attr1    = CONV #( lr_usage->PartnerCode )
+                                   attr2    = CONV #( lr_usage->UsedInEntity )
                                    severity = if_abap_behv_message=>severity-error )
-          %element-PartnerName = if_abap_behv=>mk-on
         ) TO reported-businesspartner.
-      ENDIF.
-
-      " 2. Roles: at least one of customer and supplier
-      IF lr_partner->IsCustomer IS INITIAL AND lr_partner->IsSupplier IS INITIAL.
-        lv_has_error = abap_true.
-        APPEND VALUE #(
-          %tky                = lr_partner->%tky
-          %state_area         = c_val_role
-          %msg                = NEW zcx_merp_md(
-                                  textid   = zcx_merp_md=>select_partner_role
-                                  severity = if_abap_behv_message=>severity-error )
-          %element-IsCustomer = if_abap_behv=>mk-on
-          %element-IsSupplier = if_abap_behv=>mk-on
-        ) TO reported-businesspartner.
-      ENDIF.
-
-      IF lv_has_error = abap_true.
-        " Any error fails the instance
-        APPEND VALUE #(
-          %tky        = lr_partner->%tky
-          %fail-cause = if_abap_behv=>cause-unspecific
-        ) TO failed-businesspartner.
-      ENDIF.
+      ENDLOOP.
     ENDLOOP.
   ENDMETHOD.
 
-  METHOD clearMessagesForFilledFields.
-    IF keys IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    READ ENTITIES OF zmerp_r_bus_partner IN LOCAL MODE
-      ENTITY BusinessPartner
-      FIELDS ( PartnerName IsCustomer IsSupplier )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_partners).
-
-    LOOP AT lt_partners REFERENCE INTO DATA(lr_partner).
-      " Clear message area for Business Partner Name
-      IF lr_partner->PartnerName IS NOT INITIAL.
-        APPEND VALUE #( %tky = lr_partner->%tky %state_area = c_val_name ) TO reported-businesspartner.
-      ENDIF.
-
-      " Clear message area for Partner Roles if at least one checkbox is set
-      IF lr_partner->IsCustomer IS NOT INITIAL OR lr_partner->IsSupplier IS NOT INITIAL.
-        APPEND VALUE #( %tky = lr_partner->%tky %state_area = c_val_role ) TO reported-businesspartner.
-      ENDIF.
-    ENDLOOP.
-  ENDMETHOD.
-
+  " --- Numbering ---
   METHOD earlynumbering_create.
     IF entities IS INITIAL.
       RETURN.
@@ -236,41 +190,116 @@ CLASS lhc_zmerp_r_bus_partner IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
-  METHOD precheck_delete.
-    " Usages of all keys in one selection (the selector skips initial keys)
-    DATA(lt_usages) = NEW zcl_merp_md_bus_partner_sel( )->zif_merp_md_bus_partner_sel~read_usages(
-      VALUE #( FOR key IN keys ( PartnerCode = key-PartnerCode ) ) ).
+  " --- Validations ---
+  METHOD validateMandatoryFields.
+    DATA lv_has_error TYPE abap_bool.
 
-    IF lt_usages IS INITIAL.
+    " Clear the messages of the previous validation run
+    reported-businesspartner = VALUE #(
+      BASE reported-businesspartner
+      FOR key IN keys
+      ( %tky        = key-%tky
+        %state_area = c_val_name )
+      ( %tky        = key-%tky
+        %state_area = c_val_role )
+      ( %tky        = key-%tky
+        %state_area = c_val_cntr )
+    ).
+
+    READ ENTITIES OF zmerp_r_bus_partner IN LOCAL MODE
+      ENTITY BusinessPartner
+      FIELDS ( PartnerName IsCustomer IsSupplier Country )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_partners).
+
+    IF lt_partners IS INITIAL.
       RETURN.
     ENDIF.
 
-    LOOP AT keys REFERENCE INTO DATA(lr_key).
-      IF NOT line_exists( lt_usages[ PartnerCode = lr_key->PartnerCode ] ).
-        CONTINUE.
+    " Countries of the partners (one selection; initial countries are skipped by the selector)
+    DATA(lt_countries) = NEW zcl_merp_md_sap_sel( )->zif_merp_md_sap_sel~read_countries(
+      VALUE #( FOR partner IN lt_partners ( Country = partner-Country ) )
+    ).
+
+    LOOP AT lt_partners REFERENCE INTO DATA(lr_partner).
+      lv_has_error = abap_false.
+
+      " 1. Name: mandatory
+      IF lr_partner->PartnerName IS INITIAL.
+        lv_has_error = abap_true.
+        APPEND VALUE #(
+          %tky                 = lr_partner->%tky
+          %state_area          = c_val_name
+          %msg                 = NEW zcx_merp_md(
+                                   textid   = zcx_merp_md=>enter_partner_name
+                                   severity = if_abap_behv_message=>severity-error )
+          %element-PartnerName = if_abap_behv=>mk-on
+        ) TO reported-businesspartner.
       ENDIF.
 
-      APPEND VALUE #(
-        %tky        = lr_key->%tky
-        %fail-cause = if_abap_behv=>cause-dependency
-      ) TO failed-businesspartner.
-
-      " One message per using entity (sorted table: WHERE uses the table key)
-      LOOP AT lt_usages REFERENCE INTO DATA(lr_usage) WHERE PartnerCode = lr_key->PartnerCode.
+      " 2. Roles: at least one of customer and supplier
+      IF lr_partner->IsCustomer IS INITIAL AND lr_partner->IsSupplier IS INITIAL.
+        lv_has_error = abap_true.
         APPEND VALUE #(
-          %tky                 = lr_key->%tky
-          %element-PartnerCode = if_abap_behv=>mk-on
-          %msg                 = NEW zcx_merp_md(
-                                   textid   = zcx_merp_md=>business_partner_in_use
-                                   attr1    = CONV #( lr_usage->PartnerCode )
-                                   attr2    = CONV #( lr_usage->UsedInEntity )
-                                   severity = if_abap_behv_message=>severity-error )
+          %tky                = lr_partner->%tky
+          %state_area         = c_val_role
+          %msg                = NEW zcx_merp_md(
+                                  textid   = zcx_merp_md=>select_partner_role
+                                  severity = if_abap_behv_message=>severity-error )
+          %element-IsCustomer = if_abap_behv=>mk-on
+          %element-IsSupplier = if_abap_behv=>mk-on
         ) TO reported-businesspartner.
-      ENDLOOP.
+      ENDIF.
+
+      " 3. Country: optional, must exist when entered
+      IF lr_partner->Country IS NOT INITIAL
+         AND NOT line_exists( lt_countries[ Country = lr_partner->Country ] ).
+        lv_has_error = abap_true.
+        APPEND VALUE #(
+          %tky             = lr_partner->%tky
+          %state_area      = c_val_cntr
+          %msg             = NEW zcx_merp_md(
+                               textid   = zcx_merp_md=>country_not_found
+                               attr1    = CONV string( lr_partner->Country )
+                               severity = if_abap_behv_message=>severity-error )
+          %element-Country = if_abap_behv=>mk-on
+        ) TO reported-businesspartner.
+      ENDIF.
+
+      IF lv_has_error = abap_true.
+        " Any error fails the instance
+        APPEND VALUE #(
+          %tky        = lr_partner->%tky
+          %fail-cause = if_abap_behv=>cause-unspecific
+        ) TO failed-businesspartner.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  " --- Clearing of validation messages ---
+  METHOD clearMessagesForFilledFields.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    READ ENTITIES OF zmerp_r_bus_partner IN LOCAL MODE
+      ENTITY BusinessPartner
+      FIELDS ( PartnerName IsCustomer IsSupplier )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_partners).
+
+    LOOP AT lt_partners REFERENCE INTO DATA(lr_partner).
+      " Clear message area for Business Partner Name
+      IF lr_partner->PartnerName IS NOT INITIAL.
+        APPEND VALUE #( %tky = lr_partner->%tky %state_area = c_val_name ) TO reported-businesspartner.
+      ENDIF.
+
+      " Clear message area for Partner Roles if at least one checkbox is set
+      IF lr_partner->IsCustomer IS NOT INITIAL OR lr_partner->IsSupplier IS NOT INITIAL.
+        APPEND VALUE #( %tky = lr_partner->%tky %state_area = c_val_role ) TO reported-businesspartner.
+      ENDIF.
     ENDLOOP.
   ENDMETHOD.
 
 ENDCLASS.
-
-
 

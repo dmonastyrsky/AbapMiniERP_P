@@ -5,6 +5,7 @@ CLASS lhc_zmerp_r_warehouse DEFINITION INHERITING FROM cl_abap_behavior_handler.
       c_val_name    TYPE string VALUE 'VALIDATE_WAREHOUSE_NAME',
       c_val_company TYPE string VALUE 'VALIDATE_COMPANY_CODE'.
 
+    " --- Access and state ---
     "! Evaluates global authorizations for CUD operations.
     METHODS get_global_authorizations FOR GLOBAL AUTHORIZATION
       IMPORTING
@@ -17,25 +18,30 @@ CLASS lhc_zmerp_r_warehouse DEFINITION INHERITING FROM cl_abap_behavior_handler.
         keys   REQUEST requested_features FOR Warehouse
       RESULT   result.
 
-    "! Validates mandatory fields before saving.
-    METHODS validateMandatoryFields FOR VALIDATE ON SAVE
-      IMPORTING keys FOR Warehouse~validateMandatoryFields.
-
-    "! Clears validation messages for fields that have been filled in.
-    METHODS clearMessagesForFilledFields FOR DETERMINE ON MODIFY
-      IMPORTING keys FOR Warehouse~clearMessagesForFilledFields.
-
     "! Pre-checks deletion dependencies in referenced entities.
     METHODS precheck_delete FOR PRECHECK
       IMPORTING keys FOR DELETE Warehouse.
 
+    " --- Numbering ---
     "! Assigns early numbers for new Warehouse entities.
     METHODS earlynumbering_create FOR NUMBERING
       IMPORTING entities FOR CREATE Warehouse.
+
+    " --- Validations ---
+    "! Validates mandatory fields before saving.
+    METHODS validateMandatoryFields FOR VALIDATE ON SAVE
+      IMPORTING keys FOR Warehouse~validateMandatoryFields.
+
+    " --- Clearing of validation messages ---
+    "! Clears validation messages for fields that have been filled in.
+    METHODS clearMessagesForFilledFields FOR DETERMINE ON MODIFY
+      IMPORTING keys FOR Warehouse~clearMessagesForFilledFields.
+
 ENDCLASS.
 
 CLASS lhc_zmerp_r_warehouse IMPLEMENTATION.
 
+  " --- Access and state ---
   METHOD get_global_authorizations.
     IF requested_authorizations-%create = if_abap_behv=>mk-on.
       result-%create = if_abap_behv=>auth-allowed.
@@ -64,6 +70,109 @@ CLASS lhc_zmerp_r_warehouse IMPLEMENTATION.
     ).
   ENDMETHOD.
 
+  METHOD precheck_delete.
+    " Usages of all keys in one selection (the selector skips initial keys)
+    DATA(lt_usages) = NEW zcl_merp_md_warehouse_sel( )->zif_merp_md_warehouse_sel~read_usages(
+      VALUE #( FOR key IN keys ( WarehouseCode = key-WarehouseCode ) ) ).
+
+    IF lt_usages IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    LOOP AT keys REFERENCE INTO DATA(lr_key).
+      IF NOT line_exists( lt_usages[ WarehouseCode = lr_key->WarehouseCode ] ).
+        CONTINUE.
+      ENDIF.
+
+      APPEND VALUE #(
+        %tky        = lr_key->%tky
+        %fail-cause = if_abap_behv=>cause-dependency
+      ) TO failed-warehouse.
+
+      " One message per using entity (sorted table: WHERE uses the table key)
+      LOOP AT lt_usages REFERENCE INTO DATA(lr_usage) WHERE WarehouseCode = lr_key->WarehouseCode.
+        APPEND VALUE #(
+          %tky                   = lr_key->%tky
+          %element-WarehouseCode = if_abap_behv=>mk-on
+          %msg                   = NEW zcx_merp_md(
+                                     textid   = zcx_merp_md=>warehouse_in_use
+                                     attr1    = CONV #( lr_usage->WarehouseCode )
+                                     attr2    = CONV #( lr_usage->UsedInEntity )
+                                     severity = if_abap_behv_message=>severity-error )
+        ) TO reported-warehouse.
+      ENDLOOP.
+    ENDLOOP.
+  ENDMETHOD.
+
+  " --- Numbering ---
+  METHOD earlynumbering_create.
+    IF entities IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    DATA lx_nro_error    TYPE REF TO cx_number_ranges.
+    DATA lt_codes        TYPE string_table.
+
+    " Step 1: Count entities requiring key generation using the secondary key
+    DATA(lv_needed_count) = REDUCE i( INIT count = 0
+                                  FOR entity IN entities USING KEY entity
+                                  WHERE ( WarehouseCode IS INITIAL )
+                                  NEXT count += 1 ).
+
+    " Step 2: Bulk allocation via NRO utility with exception capture
+    IF lv_needed_count > 0.
+      TRY.
+          lt_codes = zcl_merp_num_range_util=>get_next_wh_codes_nro( iv_count = lv_needed_count ).
+        CATCH cx_number_ranges INTO lx_nro_error.
+          CLEAR lt_codes.
+      ENDTRY.
+    ENDIF.
+
+    DATA(lv_index) = 1.
+
+    " Step 3: Map keys to instances safely
+    LOOP AT entities REFERENCE INTO DATA(lr_entity).
+      IF lr_entity->WarehouseCode IS INITIAL.
+        READ TABLE lt_codes INDEX lv_index ASSIGNING FIELD-SYMBOL(<lv_code>).
+
+        IF sy-subrc = 0 AND <lv_code> IS NOT INITIAL.
+          APPEND VALUE #(
+            %cid          = lr_entity->%cid
+            %is_draft     = lr_entity->%is_draft
+            WarehouseCode = CONV #( <lv_code> )
+          ) TO mapped-warehouse.
+
+          " Increment index ONLY after processing an auto-numbered entity
+          lv_index += 1.
+        ELSE.
+          APPEND VALUE #(
+            %cid        = lr_entity->%cid
+            %is_draft   = lr_entity->%is_draft
+            %fail-cause = if_abap_behv=>cause-unspecific
+          ) TO failed-warehouse.
+
+          " Report error with root cause exception reference if available
+          APPEND VALUE #(
+            %cid      = lr_entity->%cid
+            %is_draft = lr_entity->%is_draft
+            %msg      = NEW zcx_merp_md(
+                          textid   = zcx_merp_md=>warehouse_generation_failed
+                          previous = lx_nro_error
+                          severity = if_abap_behv_message=>severity-error )
+          ) TO reported-warehouse.
+        ENDIF.
+      ELSE.
+        " Key already assigned (draft activation passes the draft key): keep it, no new number is drawn
+        APPEND VALUE #(
+          %cid          = lr_entity->%cid
+          %is_draft     = lr_entity->%is_draft
+          WarehouseCode = lr_entity->WarehouseCode
+        ) TO mapped-warehouse.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  " --- Validations ---
   METHOD validateMandatoryFields.
     DATA lv_has_error TYPE abap_bool.
 
@@ -142,6 +251,7 @@ CLASS lhc_zmerp_r_warehouse IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
+  " --- Clearing of validation messages ---
   METHOD clearMessagesForFilledFields.
     IF keys IS INITIAL.
       RETURN.
@@ -166,107 +276,5 @@ CLASS lhc_zmerp_r_warehouse IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
-  METHOD earlynumbering_create.
-    IF entities IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    DATA lx_nro_error    TYPE REF TO cx_number_ranges.
-    DATA lt_codes        TYPE string_table.
-
-    " Step 1: Count entities requiring key generation using the secondary key
-    DATA(lv_needed_count) = REDUCE i( INIT count = 0
-                                  FOR entity IN entities USING KEY entity
-                                  WHERE ( WarehouseCode IS INITIAL )
-                                  NEXT count += 1 ).
-
-    " Step 2: Bulk allocation via NRO utility with exception capture
-    IF lv_needed_count > 0.
-      TRY.
-          lt_codes = zcl_merp_num_range_util=>get_next_wh_codes_nro( iv_count = lv_needed_count ).
-        CATCH cx_number_ranges INTO lx_nro_error.
-          CLEAR lt_codes.
-      ENDTRY.
-    ENDIF.
-
-    DATA(lv_index) = 1.
-
-    " Step 3: Map keys to instances safely
-    LOOP AT entities REFERENCE INTO DATA(lr_entity).
-      IF lr_entity->WarehouseCode IS INITIAL.
-        READ TABLE lt_codes INDEX lv_index ASSIGNING FIELD-SYMBOL(<lv_code>).
-
-        IF sy-subrc = 0 AND <lv_code> IS NOT INITIAL.
-          APPEND VALUE #(
-            %cid          = lr_entity->%cid
-            %is_draft     = lr_entity->%is_draft
-            WarehouseCode = CONV #( <lv_code> )
-          ) TO mapped-warehouse.
-
-          " Increment index ONLY after processing an auto-numbered entity
-          lv_index += 1.
-        ELSE.
-          APPEND VALUE #(
-            %cid        = lr_entity->%cid
-            %is_draft   = lr_entity->%is_draft
-            %fail-cause = if_abap_behv=>cause-unspecific
-          ) TO failed-warehouse.
-
-          " Report error with root cause exception reference if available
-          APPEND VALUE #(
-            %cid      = lr_entity->%cid
-            %is_draft = lr_entity->%is_draft
-            %msg      = NEW zcx_merp_md(
-                          textid   = zcx_merp_md=>warehouse_generation_failed
-                          previous = lx_nro_error
-                          severity = if_abap_behv_message=>severity-error )
-          ) TO reported-warehouse.
-        ENDIF.
-      ELSE.
-        " Key already assigned (draft activation passes the draft key): keep it, no new number is drawn
-        APPEND VALUE #(
-          %cid          = lr_entity->%cid
-          %is_draft     = lr_entity->%is_draft
-          WarehouseCode = lr_entity->WarehouseCode
-        ) TO mapped-warehouse.
-      ENDIF.
-    ENDLOOP.
-  ENDMETHOD.
-
-  METHOD precheck_delete.
-    " Usages of all keys in one selection (the selector skips initial keys)
-    DATA(lt_usages) = NEW zcl_merp_md_warehouse_sel( )->zif_merp_md_warehouse_sel~read_usages(
-      VALUE #( FOR key IN keys ( WarehouseCode = key-WarehouseCode ) ) ).
-
-    IF lt_usages IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    LOOP AT keys REFERENCE INTO DATA(lr_key).
-      IF NOT line_exists( lt_usages[ WarehouseCode = lr_key->WarehouseCode ] ).
-        CONTINUE.
-      ENDIF.
-
-      APPEND VALUE #(
-        %tky        = lr_key->%tky
-        %fail-cause = if_abap_behv=>cause-dependency
-      ) TO failed-warehouse.
-
-      " One message per using entity (sorted table: WHERE uses the table key)
-      LOOP AT lt_usages REFERENCE INTO DATA(lr_usage) WHERE WarehouseCode = lr_key->WarehouseCode.
-        APPEND VALUE #(
-          %tky                   = lr_key->%tky
-          %element-WarehouseCode = if_abap_behv=>mk-on
-          %msg                   = NEW zcx_merp_md(
-                                     textid   = zcx_merp_md=>warehouse_in_use
-                                     attr1    = CONV #( lr_usage->WarehouseCode )
-                                     attr2    = CONV #( lr_usage->UsedInEntity )
-                                     severity = if_abap_behv_message=>severity-error )
-        ) TO reported-warehouse.
-      ENDLOOP.
-    ENDLOOP.
-  ENDMETHOD.
-
 ENDCLASS.
-
 

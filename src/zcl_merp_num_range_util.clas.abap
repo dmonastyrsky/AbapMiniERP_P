@@ -6,7 +6,7 @@ CLASS zcl_merp_num_range_util DEFINITION
   PUBLIC SECTION.
 
     " Bulk NRO Generation Methods
-    "! Generates multiple sequential Business Partner codes using NRO API with DB fallback.
+    "! Generates multiple sequential Business Partner codes via NRO.
     "! @parameter iv_count | Total count of sequential codes requested
     "! @parameter rt_codes | Table of generated formatted Business Partner codes
     CLASS-METHODS get_next_bp_codes_nro
@@ -17,7 +17,7 @@ CLASS zcl_merp_num_range_util DEFINITION
       RAISING
         cx_number_ranges.
 
-    "! Generates multiple sequential Item codes using NRO API with DB fallback.
+    "! Generates multiple sequential Item codes via NRO.
     "! @parameter iv_count | Total count of sequential codes requested
     "! @parameter rt_codes | Table of generated formatted Item codes
     CLASS-METHODS get_next_item_codes_nro
@@ -28,7 +28,7 @@ CLASS zcl_merp_num_range_util DEFINITION
       RAISING
         cx_number_ranges.
 
-    "! Generates multiple sequential Item Group codes using NRO API with DB fallback.
+    "! Generates multiple sequential Item Group codes via NRO.
     "! @parameter iv_count | Total count of sequential codes requested
     "! @parameter rt_codes | Table of generated formatted Item Group codes
     CLASS-METHODS get_next_item_grp_codes_nro
@@ -39,7 +39,7 @@ CLASS zcl_merp_num_range_util DEFINITION
       RAISING
         cx_number_ranges.
 
-    "! Generates multiple sequential VAT codes using NRO API with DB fallback.
+    "! Generates multiple sequential VAT codes via NRO.
     "! @parameter iv_count | Total count of sequential codes requested
     "! @parameter rt_codes | Table of generated formatted VAT codes
     CLASS-METHODS get_next_vat_codes_nro
@@ -50,7 +50,7 @@ CLASS zcl_merp_num_range_util DEFINITION
       RAISING
         cx_number_ranges.
 
-    "! Generates multiple sequential Warehouse codes using NRO API with DB fallback.
+    "! Generates multiple sequential Warehouse codes via NRO.
     "! @parameter iv_count | Total count of sequential codes requested
     "! @parameter rt_codes | Table of generated formatted Warehouse codes
     CLASS-METHODS get_next_wh_codes_nro
@@ -61,7 +61,7 @@ CLASS zcl_merp_num_range_util DEFINITION
       RAISING
         cx_number_ranges.
 
-    "! Generates multiple sequential Purchase Order numbers using NRO API with DB fallback.
+    "! Generates multiple sequential Purchase Order numbers via NRO.
     "! @parameter iv_company_code | Company code context
     "! @parameter iv_count        | Total count of sequential numbers requested
     "! @parameter rt_numbers      | Table of generated formatted Purchase Order numbers
@@ -74,7 +74,7 @@ CLASS zcl_merp_num_range_util DEFINITION
       RAISING
         cx_number_ranges.
 
-    "! Generates multiple sequential Goods Receipt numbers using NRO API with DB fallback.
+    "! Generates multiple sequential Goods Receipt numbers via NRO.
     "! @parameter iv_company_code | Company code context
     "! @parameter iv_count        | Total count of sequential numbers requested
     "! @parameter rt_numbers      | Table of generated formatted Goods Receipt numbers
@@ -134,7 +134,7 @@ CLASS zcl_merp_num_range_util DEFINITION
       RETURNING
         VALUE(rv_prefix) TYPE string.
 
-    "! Several master data codes: NRO with fallback to the database max search.
+    "! Several master data codes via NRO (no fallback, N1).
     CLASS-METHODS get_next_codes_nro
       IMPORTING
         is_meta         TYPE zif_merp_constants=>ty_entity_metadata
@@ -144,7 +144,7 @@ CLASS zcl_merp_num_range_util DEFINITION
       RAISING
         cx_number_ranges.
 
-    "! Several document numbers of a company code: NRO with fallback to the database max search.
+    "! Several document numbers of a company code via NRO (no fallback, N1).
     CLASS-METHODS get_next_doc_numbers_nro
       IMPORTING
         is_meta           TYPE zif_merp_constants=>ty_entity_metadata
@@ -161,29 +161,6 @@ CLASS zcl_merp_num_range_util DEFINITION
       IMPORTING
         is_meta         TYPE zif_merp_constants=>ty_entity_metadata
         iv_company_code TYPE zmerp_company_code OPTIONAL.
-
-    "! Generic bulk sequential number generator based on entity metadata.
-    CLASS-METHODS get_next_numbers
-      IMPORTING
-        is_meta            TYPE zif_merp_constants=>ty_entity_metadata
-        iv_count           TYPE i
-        iv_company_code    TYPE zmerp_company_code OPTIONAL
-        iv_prefix_override TYPE string OPTIONAL
-      RETURNING
-        VALUE(rt_codes)    TYPE string_table
-      RAISING
-        cx_number_ranges.
-
-    "! Highest numeric suffix used in the active (and, for master data, draft) table.
-    CLASS-METHODS get_max_numeric
-      IMPORTING
-        is_meta         TYPE zif_merp_constants=>ty_entity_metadata
-        iv_prefix       TYPE string
-        iv_company_code TYPE zmerp_company_code OPTIONAL
-      RETURNING
-        VALUE(rv_max)   TYPE int8
-      RAISING
-        cx_number_ranges.
 
     "! Queries highest current key from specified database table matching prefix pattern and optional company code.
     "! @raising cx_number_ranges | The database could not be read: the caller must not continue with a guessed value
@@ -320,28 +297,26 @@ CLASS zcl_merp_num_range_util IMPLEMENTATION.
       is_meta  = is_meta
       iv_count = iv_count ).
 
+    " No fallback to the database maximum: it would leave the NRO level behind and NRO would
+    " issue the same code again later. Fewer codes than requested: the caller fails the instances
     IF lines( rt_codes ) < iv_count.
-      rt_codes = get_next_numbers(
-        is_meta  = is_meta
-        iv_count = iv_count ).
+      CLEAR rt_codes.
+      RAISE EXCEPTION NEW cx_number_ranges( ).
     ENDIF.
   ENDMETHOD.
 
   METHOD get_next_doc_numbers_nro.
-    DATA(lv_prefix) = get_company_prefix( iv_company_code ).
-
     rt_numbers = zcl_merp_nro_admin_util=>get_next_numbers_from_nro(
       is_meta            = is_meta
       iv_count           = iv_count
       iv_company_code    = iv_company_code
-      iv_prefix_override = lv_prefix ).
+      iv_prefix_override = get_company_prefix( iv_company_code ) ).
 
+    " No fallback to the database maximum (see get_next_codes_nro): without numbers
+    " validateDocumentNumber rejects the documents
     IF lines( rt_numbers ) < iv_count.
-      rt_numbers = get_next_numbers(
-        is_meta            = is_meta
-        iv_count           = iv_count
-        iv_company_code    = iv_company_code
-        iv_prefix_override = lv_prefix ).
+      CLEAR rt_numbers.
+      RAISE EXCEPTION NEW cx_number_ranges( ).
     ENDIF.
   ENDMETHOD.
 
@@ -371,68 +346,6 @@ CLASS zcl_merp_num_range_util IMPLEMENTATION.
     ENDTRY.
   ENDMETHOD.
 
-  METHOD get_next_numbers.
-    IF iv_count <= 0.
-      RETURN.
-    ENDIF.
-
-    DATA(lv_prefix) = COND string(
-      WHEN iv_prefix_override IS SUPPLIED AND iv_prefix_override IS NOT INITIAL
-      THEN iv_prefix_override
-      ELSE is_meta-prefix ).
-
-    DATA(lv_max_numeric) = get_max_numeric(
-      is_meta         = is_meta
-      iv_prefix       = lv_prefix
-      iv_company_code = iv_company_code ).
-
-    DO iv_count TIMES.
-      lv_max_numeric += 1.
-      DATA(lv_code) = zcl_merp_format_util=>format_code(
-        iv_prefix       = lv_prefix
-        iv_number       = lv_max_numeric
-        iv_total_length = is_meta-length ).
-
-      IF lv_code IS INITIAL.
-        CLEAR rt_codes.
-        RAISE EXCEPTION NEW cx_number_ranges( ).
-      ENDIF.
-
-      APPEND lv_code TO rt_codes.
-    ENDDO.
-  ENDMETHOD.
-
-  METHOD get_max_numeric.
-    DATA(lv_prefix_length) = strlen( iv_prefix ).
-
-    " Active table search is always performed
-    DATA(lv_max_active) = get_max_code_from_db(
-      iv_table        = is_meta-table_db
-      iv_field        = is_meta-field_db
-      iv_prefix       = iv_prefix
-      iv_company_code = iv_company_code ).
-
-    " Skip draft table search for transactional documents since late numbering leaves draft document numbers initial
-    " (metadata field names are upper case, so the comparison is done in upper case)
-    DATA(lv_max_draft) = COND string(
-      WHEN is_meta-table_draft IS NOT INITIAL
-       AND is_meta-field_draft IS NOT INITIAL
-       AND to_upper( is_meta-field_db ) <> 'DOCUMENT_NUMBER'
-      THEN get_max_code_from_db(
-             iv_table        = is_meta-table_draft
-             iv_field        = is_meta-field_draft
-             iv_prefix       = iv_prefix
-             iv_company_code = iv_company_code ) ).
-
-    rv_max = nmax(
-      val1 = extract_numeric_suffix(
-               iv_code   = lv_max_active
-               iv_offset = lv_prefix_length )
-      val2 = extract_numeric_suffix(
-               iv_code   = lv_max_draft
-               iv_offset = lv_prefix_length ) ).
-  ENDMETHOD.
-
   METHOD get_max_code_from_db.
     DATA: BEGIN OF ls_result,
             val TYPE string,
@@ -443,13 +356,10 @@ CLASS zcl_merp_num_range_util IMPLEMENTATION.
     DATA(lv_prefix_upper) = cl_abap_dyn_prg=>escape_quotes( to_upper( iv_prefix ) ).
     DATA(lv_prefix_lower) = cl_abap_dyn_prg=>escape_quotes( to_lower( iv_prefix ) ).
 
-    DATA(lv_comp_field) = COND string(
-      WHEN to_lower( iv_table ) CS '_d' THEN 'companycode'
-      ELSE 'company_code' ).
-
+    " Only active tables are read (C1): their company field is COMPANY_CODE
     DATA(lv_company_filter) = COND string(
       WHEN iv_company_code IS NOT INITIAL
-      THEN | AND { lv_comp_field } = '{ cl_abap_dyn_prg=>escape_quotes( CONV string( iv_company_code ) ) }'|
+      THEN | AND company_code = '{ cl_abap_dyn_prg=>escape_quotes( CONV string( iv_company_code ) ) }'|
       ELSE '' ).
 
     TRY.

@@ -24,7 +24,7 @@ authorization master ( global )
   determination clearMessagesForFilledFields on modify
         { field PartnerName, IsCustomer, IsSupplier; }
 
-  validation validateMandatoryFields on save { create; update; field PartnerName, IsCustomer, IsSupplier; }
+  validation validateMandatoryFields on save { create; update; field PartnerName, IsCustomer, IsSupplier, Country; }
 
   draft action Edit;
   draft action Activate optimized;

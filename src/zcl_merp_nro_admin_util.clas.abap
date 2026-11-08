@@ -21,6 +21,12 @@ CLASS zcl_merp_nro_admin_util DEFINITION
     "! Resets subobject NRO intervals back to zero for all document NRO objects across all active company codes.
     CLASS-METHODS reset_doc_intervals.
 
+    "! Sets the intervals of all document NRO objects of one company code to level zero (creates them if missing).
+    "! Used for a new company code and by reset_doc_intervals.
+    CLASS-METHODS reset_company_doc_intervals
+      IMPORTING
+        iv_company_code TYPE zmerp_company_code.
+
     "! Saves or updates NRO interval '01' level for specified object and subobject.
     CLASS-METHODS save_interval
       IMPORTING
@@ -103,19 +109,19 @@ CLASS zcl_merp_nro_admin_util IMPLEMENTATION.
       FROM zmerp_comp_code
       INTO TABLE @DATA(lt_companies).
 
-    IF lt_companies IS INITIAL.
-      RETURN.
-    ENDIF.
+    LOOP AT lt_companies ASSIGNING FIELD-SYMBOL(<ls_company>).
+      reset_company_doc_intervals( <ls_company>-company_code ).
+    ENDLOOP.
+  ENDMETHOD.
 
+  METHOD reset_company_doc_intervals.
     DATA(lt_doc_objects) = get_doc_nro_objects( ).
 
     LOOP AT lt_doc_objects ASSIGNING FIELD-SYMBOL(<lv_doc_object>).
-      LOOP AT lt_companies ASSIGNING FIELD-SYMBOL(<ls_company>).
-        save_interval(
-          iv_object    = CONV #( <lv_doc_object> )
-          iv_subobject = CONV #( <ls_company>-company_code )
-          iv_level     = 0 ).
-      ENDLOOP.
+      save_interval(
+        iv_object    = CONV #( <lv_doc_object> )
+        iv_subobject = CONV #( iv_company_code )
+        iv_level     = 0 ).
     ENDLOOP.
   ENDMETHOD.
 

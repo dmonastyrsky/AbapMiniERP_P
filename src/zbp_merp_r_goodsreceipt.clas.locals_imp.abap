@@ -17,6 +17,7 @@ CLASS lhc_zmerp_r_goodsreceipt DEFINITION INHERITING FROM cl_abap_behavior_handl
            END OF ty_po_status,
            tt_po_status TYPE STANDARD TABLE OF ty_po_status WITH EMPTY KEY.
 
+    " --- Access and state ---
     "! Evaluates global authorizations for CUD operations.
     METHODS get_global_authorizations FOR GLOBAL AUTHORIZATION
       IMPORTING
@@ -34,16 +35,11 @@ CLASS lhc_zmerp_r_goodsreceipt DEFINITION INHERITING FROM cl_abap_behavior_handl
       IMPORTING
         keys FOR DELETE GoodsReceipt.
 
+    " --- Actions ---
     "! Posts the Goods Receipt.
     METHODS postDocument FOR MODIFY
       IMPORTING
         keys   FOR ACTION GoodsReceipt~postDocument
-      RESULT   result.
-
-    "! Cancels the Goods Receipt.
-    METHODS cancelDocument FOR MODIFY
-      IMPORTING
-        keys   FOR ACTION GoodsReceipt~cancelDocument
       RESULT   result.
 
     "! Unposts the Goods Receipt (back to 'New'): stock must not become negative,
@@ -53,6 +49,13 @@ CLASS lhc_zmerp_r_goodsreceipt DEFINITION INHERITING FROM cl_abap_behavior_handl
         keys   FOR ACTION GoodsReceipt~unpostDocument
       RESULT   result.
 
+    "! Cancels the Goods Receipt.
+    METHODS cancelDocument FOR MODIFY
+      IMPORTING
+        keys   FOR ACTION GoodsReceipt~cancelDocument
+      RESULT   result.
+
+    " --- Determinations on modify ---
     "! Sets default header values on document creation.
     METHODS setHeaderDefaults FOR DETERMINE ON MODIFY
       IMPORTING
@@ -62,6 +65,16 @@ CLASS lhc_zmerp_r_goodsreceipt DEFINITION INHERITING FROM cl_abap_behavior_handl
     METHODS deriveHeaderOnCompanyCode FOR DETERMINE ON MODIFY
       IMPORTING
         keys FOR GoodsReceipt~deriveHeaderOnCompanyCode.
+
+    "! Derives dependent header fields when the document date changes.
+    METHODS deriveDatesOnDocumentDate FOR DETERMINE ON MODIFY
+      IMPORTING
+        keys FOR GoodsReceipt~deriveDatesOnDocumentDate.
+
+    "! Keeps the currency of all items in sync with the header currency.
+    METHODS syncItemCurrency FOR DETERMINE ON MODIFY
+      IMPORTING
+        keys FOR GoodsReceipt~syncItemCurrency.
 
     "! Derives header fields and context when the referenced Purchase Order changes.
     METHODS deriveDocFromPurchaseOrder FOR DETERMINE ON MODIFY
@@ -74,20 +87,22 @@ CLASS lhc_zmerp_r_goodsreceipt DEFINITION INHERITING FROM cl_abap_behavior_handl
       IMPORTING
         keys FOR GoodsReceipt~clearPoOnHeaderChange.
 
-    "! Derives dependent header fields when the document date changes.
-    METHODS deriveDatesOnDocumentDate FOR DETERMINE ON MODIFY
-      IMPORTING
-        keys FOR GoodsReceipt~deriveDatesOnDocumentDate.
-
-    "! Keeps the currency of all items in sync with the header currency.
-    METHODS syncItemCurrency FOR DETERMINE ON MODIFY
-      IMPORTING
-        keys FOR GoodsReceipt~syncItemCurrency.
-
+    " --- Determinations on save ---
     "! Assigns the document number from the number range on first save.
     METHODS assignDocumentNumber FOR DETERMINE ON SAVE
       IMPORTING
         keys FOR GoodsReceipt~assignDocumentNumber.
+
+    " --- Validations ---
+    "! Validates mandatory header fields before saving.
+    METHODS validateHeaderFields FOR VALIDATE ON SAVE
+      IMPORTING
+        keys FOR GoodsReceipt~validateHeaderFields.
+
+    "! Validates document date and posting date consistency.
+    METHODS validateDates FOR VALIDATE ON SAVE
+      IMPORTING
+        keys FOR GoodsReceipt~validateDates.
 
     "! A document is not saved without a number: runs after assignDocumentNumber
     "! (save determinations come before save validations) and fails the instance if no number was assigned.
@@ -95,26 +110,18 @@ CLASS lhc_zmerp_r_goodsreceipt DEFINITION INHERITING FROM cl_abap_behavior_handl
       IMPORTING
         keys FOR GoodsReceipt~validateDocumentNumber.
 
-    "! Validates document date and posting date consistency.
-    METHODS validateDates FOR VALIDATE ON SAVE
+    " --- Clearing of validation messages ---
+    "! Clears validation messages for organizational header fields that have been filled in.
+    METHODS clearMessagesForHeaderFields FOR DETERMINE ON MODIFY
       IMPORTING
-        keys FOR GoodsReceipt~validateDates.
-
-    "! Validates mandatory header fields before saving.
-    METHODS validateHeaderFields FOR VALIDATE ON SAVE
-      IMPORTING
-        keys FOR GoodsReceipt~validateHeaderFields.
+        keys FOR GoodsReceipt~clearMessagesForHeaderFields.
 
     "! Clears date validation messages for fields that have been fixed.
     METHODS clearMessagesForDates FOR DETERMINE ON MODIFY
       IMPORTING
         keys FOR GoodsReceipt~clearMessagesForDates.
 
-    "! Clears validation messages for organizational header fields that have been filled in.
-    METHODS clearMessagesForHeaderFields FOR DETERMINE ON MODIFY
-      IMPORTING
-        keys FOR GoodsReceipt~clearMessagesForHeaderFields.
-
+    " --- Helpers ---
     "! Receipt status of the referenced purchase orders after the given goods receipt items are
     "! posted (iv_sign = 1) or unposted (iv_sign = -1). Only purchase orders touched by the items
     "! and whose status really changes are returned.
@@ -144,6 +151,7 @@ ENDCLASS.
 
 CLASS lhc_zmerp_r_goodsreceipt IMPLEMENTATION.
 
+  " --- Access and state ---
   METHOD get_global_authorizations.
     IF requested_authorizations-%create = if_abap_behv=>mk-on.
       result-%create = if_abap_behv=>auth-allowed.
@@ -208,28 +216,16 @@ CLASS lhc_zmerp_r_goodsreceipt IMPLEMENTATION.
     ).
   ENDMETHOD.
 
-  METHOD validateHeaderFields.
-    DATA lv_has_error TYPE abap_bool.
-    DATA lo_message   TYPE REF TO if_abap_behv_message.
+  METHOD precheck_delete.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
 
-    reported-goodsreceipt = VALUE #(
-      BASE reported-goodsreceipt
-      FOR key IN keys
-      ( %tky        = key-%tky
-        %state_area = c_val_company )
-      ( %tky        = key-%tky
-        %state_area = c_val_partner )
-      ( %tky        = key-%tky
-        %state_area = c_val_warehouse )
-      ( %tky        = key-%tky
-        %state_area = c_val_currency )
-      ( %tky        = key-%tky
-        %state_area = c_val_po_ref )
-    ).
+    DATA lv_failed_added TYPE abap_bool.
 
     READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
       ENTITY GoodsReceipt
-      FIELDS ( CompanyCode BusinessPartnerCode WarehouseCode CurrencyCode PoReferenceUUID )
+      FIELDS ( Status DocumentNumber )
       WITH CORRESPONDING #( keys )
       RESULT DATA(lt_headers).
 
@@ -237,276 +233,55 @@ CLASS lhc_zmerp_r_goodsreceipt IMPLEMENTATION.
       RETURN.
     ENDIF.
 
-    DATA(lt_companies) = NEW zcl_merp_md_comp_code_sel( )->zif_merp_md_comp_code_sel~read_companies(
-      VALUE #( FOR header IN lt_headers ( CompanyCode = header-CompanyCode ) )
-    ).
+    " Usages of all documents in one selection (the selector skips initial keys)
+    DATA(lt_usages) = NEW zcl_merp_doc_gr_sel( )->zif_merp_doc_gr_sel~read_usages(
+      VALUE #( FOR hdr IN lt_headers ( DocumentUUID = hdr-DocumentUUID ) ) ).
 
-    DATA(lt_partners) = NEW zcl_merp_md_bus_partner_sel( )->zif_merp_md_bus_partner_sel~read_partners(
-      VALUE #( FOR header IN lt_headers ( PartnerCode = header-BusinessPartnerCode ) )
-    ).
+    LOOP AT lt_headers REFERENCE INTO DATA(lr_hdr).
+      lv_failed_added = abap_false.
 
-    DATA(lt_warehouses) = NEW zcl_merp_md_warehouse_sel( )->zif_merp_md_warehouse_sel~read_warehouses(
-      VALUE #( FOR header IN lt_headers ( WarehouseCode = header-WarehouseCode ) )
-    ).
+      IF zcl_merp_doc_gr_lifecycle=>can_delete( lr_hdr->Status ) = abap_false.
+        APPEND VALUE #(
+          %tky        = lr_hdr->%tky
+          %fail-cause = if_abap_behv=>cause-conflict
+        ) TO failed-goodsreceipt.
 
-    DATA(lt_po_headers) = NEW zcl_merp_doc_po_sel( )->zif_merp_doc_po_sel~read_headers(
-      VALUE #( FOR header IN lt_headers ( DocumentUUID = header-PoReferenceUUID ) )
-    ).
-
-    " Per field: the first rule that fails gives the message (none if the field is valid)
-    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
-      lv_has_error = abap_false.
-
-      " 1. Purchase order: mandatory, exists, same company
-      "    (the value help validates only in the UI; references written via API/EML are checked here;
-      "    a numbered document keeps its company, so an order of another company is rejected here)
-      lo_message = COND #(
-        WHEN lr_header->PoReferenceUUID IS INITIAL
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_po_reference
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN NOT line_exists( lt_po_headers[ DocumentUUID = lr_header->PoReferenceUUID ] )
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>purchase_order_not_found
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN lr_header->CompanyCode IS NOT INITIAL
-         AND lt_po_headers[ DocumentUUID = lr_header->PoReferenceUUID ]-CompanyCode <> lr_header->CompanyCode
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>po_company_mismatch
-                                 attr1    = CONV string( lt_po_headers[ DocumentUUID = lr_header->PoReferenceUUID ]-DocumentNumber )
-                                 attr2    = CONV string( lt_po_headers[ DocumentUUID = lr_header->PoReferenceUUID ]-CompanyCode )
-                                 severity = if_abap_behv_message=>severity-error ) ).
-
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky                     = lr_header->%tky
-                        %state_area              = c_val_po_ref
-                        %msg                     = lo_message
-                        %element-PoReferenceUUID = if_abap_behv=>mk-on ) TO reported-goodsreceipt.
+        APPEND VALUE #(
+          %tky            = lr_hdr->%tky
+          %element-Status = if_abap_behv=>mk-on
+          %msg            = NEW zcx_merp_pur(
+                               textid   = zcx_merp_pur=>delete_not_allowed
+                               attr1    = CONV #( lr_hdr->DocumentNumber )
+                               severity = if_abap_behv_message=>severity-error )
+        ) TO reported-goodsreceipt.
+        CONTINUE.
       ENDIF.
 
-      " 2. Company: mandatory, exists
-      lo_message = COND #(
-        WHEN lr_header->CompanyCode IS INITIAL
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_company
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN NOT line_exists( lt_companies[ CompanyCode = lr_header->CompanyCode ] )
-          THEN NEW zcx_merp_md( textid   = zcx_merp_md=>company_code_not_found
-                                attr1    = CONV string( lr_header->CompanyCode )
-                                severity = if_abap_behv_message=>severity-error ) ).
+      " One message per using entity (sorted table: WHERE uses the table key)
+      LOOP AT lt_usages REFERENCE INTO DATA(lr_usage) WHERE DocumentUUID = lr_hdr->DocumentUUID.
 
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky                 = lr_header->%tky
-                        %state_area          = c_val_company
-                        %msg                 = lo_message
-                        %element-CompanyCode = if_abap_behv=>mk-on ) TO reported-goodsreceipt.
-      ENDIF.
+        IF lv_failed_added = abap_false.
+          APPEND VALUE #(
+            %tky        = lr_hdr->%tky
+            %fail-cause = if_abap_behv=>cause-dependency
+          ) TO failed-goodsreceipt.
+          lv_failed_added = abap_true.
+        ENDIF.
 
-      " 3. Partner: mandatory, exists, is a supplier
-      lo_message = COND #(
-        WHEN lr_header->BusinessPartnerCode IS INITIAL
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_business_partner
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN NOT line_exists( lt_partners[ PartnerCode = lr_header->BusinessPartnerCode ] )
-          THEN NEW zcx_merp_md( textid   = zcx_merp_md=>business_partner_not_found
-                                attr1    = CONV string( lr_header->BusinessPartnerCode )
-                                severity = if_abap_behv_message=>severity-error )
-        WHEN zcl_merp_doc_validator=>is_pur_partner_supplier(
-               lt_partners[ PartnerCode = lr_header->BusinessPartnerCode ]-IsSupplier ) = abap_false
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>bp_is_not_supplier
-                                 attr1    = CONV string( lr_header->BusinessPartnerCode )
-                                 severity = if_abap_behv_message=>severity-error ) ).
-
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky                         = lr_header->%tky
-                        %state_area                  = c_val_partner
-                        %msg                         = lo_message
-                        %element-BusinessPartnerCode = if_abap_behv=>mk-on ) TO reported-goodsreceipt.
-      ENDIF.
-
-      " 4. Warehouse: mandatory, exists, belongs to the company
-      lo_message = COND #(
-        WHEN lr_header->WarehouseCode IS INITIAL
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_warehouse
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN NOT line_exists( lt_warehouses[ WarehouseCode = lr_header->WarehouseCode ] )
-          THEN NEW zcx_merp_md( textid   = zcx_merp_md=>warehouse_not_found
-                                attr1    = CONV string( lr_header->WarehouseCode )
-                                severity = if_abap_behv_message=>severity-error )
-        WHEN lr_header->CompanyCode IS NOT INITIAL
-         AND lt_warehouses[ WarehouseCode = lr_header->WarehouseCode ]-CompanyCode <> lr_header->CompanyCode
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>warehouse_company_mismatch
-                                 attr1    = CONV string( lr_header->WarehouseCode )
-                                 attr2    = CONV string( lr_header->CompanyCode )
-                                 severity = if_abap_behv_message=>severity-error ) ).
-
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky                   = lr_header->%tky
-                        %state_area            = c_val_warehouse
-                        %msg                   = lo_message
-                        %element-WarehouseCode = if_abap_behv=>mk-on ) TO reported-goodsreceipt.
-      ENDIF.
-
-      " 5. Currency: mandatory (taken from the purchase order; without an order only the order is reported)
-      lo_message = COND #(
-        WHEN lr_header->CurrencyCode IS INITIAL AND lr_header->PoReferenceUUID IS NOT INITIAL
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_currency
-                                 severity = if_abap_behv_message=>severity-error ) ).
-
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky                  = lr_header->%tky
-                        %state_area           = c_val_currency
-                        %msg                  = lo_message
-                        %element-CurrencyCode = if_abap_behv=>mk-on ) TO reported-goodsreceipt.
-      ENDIF.
-
-      " Any error fails the instance
-      IF lv_has_error = abap_true.
-        APPEND VALUE #( %tky        = lr_header->%tky
-                        %fail-cause = if_abap_behv=>cause-unspecific ) TO failed-goodsreceipt.
-      ENDIF.
+        APPEND VALUE #(
+          %tky            = lr_hdr->%tky
+          %element-Status = if_abap_behv=>mk-on
+          %msg            = NEW zcx_merp_pur(
+                               textid   = zcx_merp_pur=>goods_receipt_in_use
+                               attr1    = CONV #( lr_hdr->DocumentNumber )
+                               attr2    = CONV #( lr_usage->UsedInEntity )
+                               severity = if_abap_behv_message=>severity-error )
+        ) TO reported-goodsreceipt.
+      ENDLOOP.
     ENDLOOP.
   ENDMETHOD.
 
-  METHOD validateDates.
-    DATA lv_has_error TYPE abap_bool.
-    DATA lo_message   TYPE REF TO if_abap_behv_message.
-
-    reported-goodsreceipt = VALUE #(
-      BASE reported-goodsreceipt
-      FOR key IN keys
-      ( %tky        = key-%tky
-        %state_area = c_val_doc_date )
-      ( %tky        = key-%tky
-        %state_area = c_val_post_date )
-    ).
-
-    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
-      ENTITY GoodsReceipt
-      FIELDS ( DocumentDate PostingDate Status )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_headers).
-
-    IF lt_headers IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    DATA(lv_today) = cl_abap_context_info=>get_system_date( ).
-
-    " Per field: the first rule that fails gives the message (none if the field is valid)
-    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
-      lv_has_error = abap_false.
-
-      " 1. Document date: mandatory, not in the future
-      lo_message = COND #(
-        WHEN lr_header->DocumentDate IS INITIAL
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>enter_document_date
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN zcl_merp_doc_validator=>is_document_date_valid( iv_doc_date = lr_header->DocumentDate
-                                                             iv_today    = lv_today ) = abap_false
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>document_date_future_invalid
-                                 severity = if_abap_behv_message=>severity-error ) ).
-
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky                  = lr_header->%tky
-                        %state_area           = c_val_doc_date
-                        %msg                  = lo_message
-                        %element-DocumentDate = if_abap_behv=>mk-on ) TO reported-goodsreceipt.
-      ENDIF.
-
-      " 2. Posting date: mandatory, not in the future, not before the document date
-      lo_message = COND #(
-        WHEN lr_header->PostingDate IS INITIAL
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>enter_posting_date
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN zcl_merp_doc_validator=>is_posting_date_not_future( iv_post_date = lr_header->PostingDate
-                                                                 iv_today     = lv_today ) = abap_false
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>posting_date_future_invalid
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN lr_header->DocumentDate IS NOT INITIAL
-         AND zcl_merp_doc_validator=>is_posting_date_valid( iv_doc_date  = lr_header->DocumentDate
-                                                            iv_post_date = lr_header->PostingDate ) = abap_false
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>posting_date_sequence_invalid
-                                 severity = if_abap_behv_message=>severity-error ) ).
-
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky                 = lr_header->%tky
-                        %state_area          = c_val_post_date
-                        %msg                 = lo_message
-                        %element-PostingDate = if_abap_behv=>mk-on ) TO reported-goodsreceipt.
-      ENDIF.
-
-      " Any error fails the instance
-      IF lv_has_error = abap_true.
-        APPEND VALUE #( %tky        = lr_header->%tky
-                        %fail-cause = if_abap_behv=>cause-unspecific ) TO failed-goodsreceipt.
-      ENDIF.
-    ENDLOOP.
-  ENDMETHOD.
-
-  METHOD clearMessagesForHeaderFields.
-    IF keys IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
-      ENTITY GoodsReceipt
-      FIELDS ( CompanyCode BusinessPartnerCode WarehouseCode CurrencyCode PoReferenceUUID )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_headers).
-
-    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
-      IF lr_header->CompanyCode IS NOT INITIAL.
-        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_company ) TO reported-goodsreceipt.
-      ENDIF.
-      IF lr_header->BusinessPartnerCode IS NOT INITIAL.
-        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_partner ) TO reported-goodsreceipt.
-      ENDIF.
-      IF lr_header->WarehouseCode IS NOT INITIAL.
-        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_warehouse ) TO reported-goodsreceipt.
-      ENDIF.
-      IF lr_header->CurrencyCode IS NOT INITIAL.
-        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_currency ) TO reported-goodsreceipt.
-      ENDIF.
-      IF lr_header->PoReferenceUUID IS NOT INITIAL.
-        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_po_ref ) TO reported-goodsreceipt.
-      ENDIF.
-    ENDLOOP.
-  ENDMETHOD.
-
-  METHOD clearMessagesForDates.
-    IF keys IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
-      ENTITY GoodsReceipt
-      FIELDS ( DocumentDate PostingDate Status )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_headers).
-
-    DATA(lv_today) = cl_abap_context_info=>get_system_date( ).
-
-    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
-      IF lr_header->DocumentDate IS NOT INITIAL
-         AND zcl_merp_doc_validator=>is_document_date_valid( iv_doc_date = lr_header->DocumentDate
-                                                             iv_today    = lv_today ) = abap_true.
-        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_doc_date ) TO reported-goodsreceipt.
-      ENDIF.
-
-      IF lr_header->PostingDate IS NOT INITIAL AND lr_header->DocumentDate IS NOT INITIAL
-         AND zcl_merp_doc_validator=>is_posting_date_not_future( iv_post_date = lr_header->PostingDate
-                                                                 iv_today     = lv_today ) = abap_true
-         AND zcl_merp_doc_validator=>is_posting_date_valid( iv_doc_date  = lr_header->DocumentDate
-                                                            iv_post_date = lr_header->PostingDate ) = abap_true.
-        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_post_date ) TO reported-goodsreceipt.
-      ENDIF.
-    ENDLOOP.
-  ENDMETHOD.
-
+  " --- Actions ---
   METHOD postDocument.
     DATA lt_update       TYPE TABLE FOR UPDATE zmerp_r_goodsreceipt.
     DATA lo_message      TYPE REF TO zcx_merp_pur.
@@ -902,6 +677,7 @@ CLASS lhc_zmerp_r_goodsreceipt IMPLEMENTATION.
     result = VALUE #( FOR header IN lt_result ( %tky = header-%tky %param = header ) ).
   ENDMETHOD.
 
+  " --- Determinations on modify ---
   METHOD setHeaderDefaults.
     DATA lt_header_update TYPE TABLE FOR UPDATE zmerp_r_goodsreceipt.
 
@@ -988,6 +764,80 @@ CLASS lhc_zmerp_r_goodsreceipt IMPLEMENTATION.
         ENTITY GoodsReceipt
         UPDATE FIELDS ( WarehouseCode )
         WITH lt_header_update.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD deriveDatesOnDocumentDate.
+    DATA lt_header_update TYPE TABLE FOR UPDATE zmerp_r_goodsreceipt.
+
+    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
+      ENTITY GoodsReceipt
+      FIELDS ( DocumentDate PostingDate )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_headers).
+
+    IF lt_headers IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
+      DATA(ls_header) = lr_header->*.
+
+      IF ls_header-DocumentDate IS NOT INITIAL.
+        IF ls_header-PostingDate IS NOT INITIAL
+           AND zcl_merp_doc_validator=>is_posting_date_valid( iv_doc_date  = ls_header-DocumentDate
+                                                              iv_post_date = ls_header-PostingDate ) = abap_false.
+          ls_header-PostingDate = ls_header-DocumentDate.
+        ENDIF.
+      ENDIF.
+
+      IF ls_header <> lr_header->*.
+        APPEND CORRESPONDING #( ls_header ) TO lt_header_update.
+      ENDIF.
+    ENDLOOP.
+
+    IF lt_header_update IS NOT INITIAL.
+      MODIFY ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
+        ENTITY GoodsReceipt
+        UPDATE FIELDS ( PostingDate )
+        WITH lt_header_update.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD syncItemCurrency.
+    DATA lt_items_to_update TYPE TABLE FOR UPDATE zmerp_r_goodsreceipt\\GoodsReceiptItem.
+
+    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
+      ENTITY GoodsReceipt
+        FIELDS ( CurrencyCode )
+        WITH CORRESPONDING #( keys )
+        RESULT DATA(lt_headers)
+      ENTITY GoodsReceipt BY \_Items
+        FIELDS ( HeaderUUID CurrencyCode )
+        WITH CORRESPONDING #( keys )
+        RESULT DATA(lt_items).
+
+    IF lt_headers IS INITIAL OR lt_items IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    LOOP AT lt_items REFERENCE INTO DATA(lr_item).
+      ASSIGN lt_headers[ DocumentUUID = lr_item->HeaderUUID
+                         %is_draft    = lr_item->%is_draft ] TO FIELD-SYMBOL(<ls_header>).
+
+      IF sy-subrc = 0 AND lr_item->CurrencyCode <> <ls_header>-CurrencyCode.
+        APPEND VALUE #(
+          %tky         = lr_item->%tky
+          CurrencyCode = <ls_header>-CurrencyCode
+        ) TO lt_items_to_update.
+      ENDIF.
+    ENDLOOP.
+
+    IF lt_items_to_update IS NOT INITIAL.
+      MODIFY ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
+        ENTITY GoodsReceiptItem
+        UPDATE FIELDS ( CurrencyCode )
+        WITH lt_items_to_update.
     ENDIF.
   ENDMETHOD.
 
@@ -1130,43 +980,6 @@ CLASS lhc_zmerp_r_goodsreceipt IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
-  METHOD deriveDatesOnDocumentDate.
-    DATA lt_header_update TYPE TABLE FOR UPDATE zmerp_r_goodsreceipt.
-
-    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
-      ENTITY GoodsReceipt
-      FIELDS ( DocumentDate PostingDate )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_headers).
-
-    IF lt_headers IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
-      DATA(ls_header) = lr_header->*.
-
-      IF ls_header-DocumentDate IS NOT INITIAL.
-        IF ls_header-PostingDate IS NOT INITIAL
-           AND zcl_merp_doc_validator=>is_posting_date_valid( iv_doc_date  = ls_header-DocumentDate
-                                                              iv_post_date = ls_header-PostingDate ) = abap_false.
-          ls_header-PostingDate = ls_header-DocumentDate.
-        ENDIF.
-      ENDIF.
-
-      IF ls_header <> lr_header->*.
-        APPEND CORRESPONDING #( ls_header ) TO lt_header_update.
-      ENDIF.
-    ENDLOOP.
-
-    IF lt_header_update IS NOT INITIAL.
-      MODIFY ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
-        ENTITY GoodsReceipt
-        UPDATE FIELDS ( PostingDate )
-        WITH lt_header_update.
-    ENDIF.
-  ENDMETHOD.
-
   METHOD clearPoOnHeaderChange.
     DATA lt_header_update TYPE TABLE FOR UPDATE zmerp_r_goodsreceipt.
 
@@ -1210,43 +1023,7 @@ CLASS lhc_zmerp_r_goodsreceipt IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
-  METHOD syncItemCurrency.
-    DATA lt_items_to_update TYPE TABLE FOR UPDATE zmerp_r_goodsreceipt\\GoodsReceiptItem.
-
-    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
-      ENTITY GoodsReceipt
-        FIELDS ( CurrencyCode )
-        WITH CORRESPONDING #( keys )
-        RESULT DATA(lt_headers)
-      ENTITY GoodsReceipt BY \_Items
-        FIELDS ( HeaderUUID CurrencyCode )
-        WITH CORRESPONDING #( keys )
-        RESULT DATA(lt_items).
-
-    IF lt_headers IS INITIAL OR lt_items IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    LOOP AT lt_items REFERENCE INTO DATA(lr_item).
-      ASSIGN lt_headers[ DocumentUUID = lr_item->HeaderUUID
-                         %is_draft    = lr_item->%is_draft ] TO FIELD-SYMBOL(<ls_header>).
-
-      IF sy-subrc = 0 AND lr_item->CurrencyCode <> <ls_header>-CurrencyCode.
-        APPEND VALUE #(
-          %tky         = lr_item->%tky
-          CurrencyCode = <ls_header>-CurrencyCode
-        ) TO lt_items_to_update.
-      ENDIF.
-    ENDLOOP.
-
-    IF lt_items_to_update IS NOT INITIAL.
-      MODIFY ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
-        ENTITY GoodsReceiptItem
-        UPDATE FIELDS ( CurrencyCode )
-        WITH lt_items_to_update.
-    ENDIF.
-  ENDMETHOD.
-
+  " --- Determinations on save ---
   METHOD assignDocumentNumber.
     DATA lt_company_headers TYPE TABLE FOR READ RESULT zmerp_r_goodsreceipt.
     DATA lt_codes           TYPE string_table.
@@ -1296,6 +1073,246 @@ CLASS lhc_zmerp_r_goodsreceipt IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
+  " --- Validations ---
+  METHOD validateHeaderFields.
+    DATA lv_has_error TYPE abap_bool.
+    DATA lo_message   TYPE REF TO if_abap_behv_message.
+
+    reported-goodsreceipt = VALUE #(
+      BASE reported-goodsreceipt
+      FOR key IN keys
+      ( %tky        = key-%tky
+        %state_area = c_val_company )
+      ( %tky        = key-%tky
+        %state_area = c_val_partner )
+      ( %tky        = key-%tky
+        %state_area = c_val_warehouse )
+      ( %tky        = key-%tky
+        %state_area = c_val_currency )
+      ( %tky        = key-%tky
+        %state_area = c_val_po_ref )
+    ).
+
+    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
+      ENTITY GoodsReceipt
+      FIELDS ( CompanyCode BusinessPartnerCode WarehouseCode CurrencyCode PoReferenceUUID )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_headers).
+
+    IF lt_headers IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    DATA(lt_companies) = NEW zcl_merp_md_comp_code_sel( )->zif_merp_md_comp_code_sel~read_companies(
+      VALUE #( FOR header IN lt_headers ( CompanyCode = header-CompanyCode ) )
+    ).
+
+    DATA(lt_partners) = NEW zcl_merp_md_bus_partner_sel( )->zif_merp_md_bus_partner_sel~read_partners(
+      VALUE #( FOR header IN lt_headers ( PartnerCode = header-BusinessPartnerCode ) )
+    ).
+
+    DATA(lt_warehouses) = NEW zcl_merp_md_warehouse_sel( )->zif_merp_md_warehouse_sel~read_warehouses(
+      VALUE #( FOR header IN lt_headers ( WarehouseCode = header-WarehouseCode ) )
+    ).
+
+    DATA(lt_po_headers) = NEW zcl_merp_doc_po_sel( )->zif_merp_doc_po_sel~read_headers(
+      VALUE #( FOR header IN lt_headers ( DocumentUUID = header-PoReferenceUUID ) )
+    ).
+
+    " Per field: the first rule that fails gives the message (none if the field is valid)
+    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
+      lv_has_error = abap_false.
+
+      " 1. Purchase order: mandatory, exists, same company
+      "    (the value help validates only in the UI; references written via API/EML are checked here;
+      "    a numbered document keeps its company, so an order of another company is rejected here)
+      lo_message = COND #(
+        WHEN lr_header->PoReferenceUUID IS INITIAL
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_po_reference
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN NOT line_exists( lt_po_headers[ DocumentUUID = lr_header->PoReferenceUUID ] )
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>purchase_order_not_found
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN lr_header->CompanyCode IS NOT INITIAL
+         AND lt_po_headers[ DocumentUUID = lr_header->PoReferenceUUID ]-CompanyCode <> lr_header->CompanyCode
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>po_company_mismatch
+                                 attr1    = CONV string( lt_po_headers[ DocumentUUID = lr_header->PoReferenceUUID ]-DocumentNumber )
+                                 attr2    = CONV string( lt_po_headers[ DocumentUUID = lr_header->PoReferenceUUID ]-CompanyCode )
+                                 severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky                     = lr_header->%tky
+                        %state_area              = c_val_po_ref
+                        %msg                     = lo_message
+                        %element-PoReferenceUUID = if_abap_behv=>mk-on ) TO reported-goodsreceipt.
+      ENDIF.
+
+      " 2. Company: mandatory, exists
+      lo_message = COND #(
+        WHEN lr_header->CompanyCode IS INITIAL
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_company
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN NOT line_exists( lt_companies[ CompanyCode = lr_header->CompanyCode ] )
+          THEN NEW zcx_merp_md( textid   = zcx_merp_md=>company_code_not_found
+                                attr1    = CONV string( lr_header->CompanyCode )
+                                severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky                 = lr_header->%tky
+                        %state_area          = c_val_company
+                        %msg                 = lo_message
+                        %element-CompanyCode = if_abap_behv=>mk-on ) TO reported-goodsreceipt.
+      ENDIF.
+
+      " 3. Partner: mandatory, exists, is a supplier
+      lo_message = COND #(
+        WHEN lr_header->BusinessPartnerCode IS INITIAL
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_business_partner
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN NOT line_exists( lt_partners[ PartnerCode = lr_header->BusinessPartnerCode ] )
+          THEN NEW zcx_merp_md( textid   = zcx_merp_md=>business_partner_not_found
+                                attr1    = CONV string( lr_header->BusinessPartnerCode )
+                                severity = if_abap_behv_message=>severity-error )
+        WHEN zcl_merp_doc_validator=>is_pur_partner_supplier(
+               lt_partners[ PartnerCode = lr_header->BusinessPartnerCode ]-IsSupplier ) = abap_false
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>bp_is_not_supplier
+                                 attr1    = CONV string( lr_header->BusinessPartnerCode )
+                                 severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky                         = lr_header->%tky
+                        %state_area                  = c_val_partner
+                        %msg                         = lo_message
+                        %element-BusinessPartnerCode = if_abap_behv=>mk-on ) TO reported-goodsreceipt.
+      ENDIF.
+
+      " 4. Warehouse: mandatory, exists, belongs to the company
+      lo_message = COND #(
+        WHEN lr_header->WarehouseCode IS INITIAL
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_warehouse
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN NOT line_exists( lt_warehouses[ WarehouseCode = lr_header->WarehouseCode ] )
+          THEN NEW zcx_merp_md( textid   = zcx_merp_md=>warehouse_not_found
+                                attr1    = CONV string( lr_header->WarehouseCode )
+                                severity = if_abap_behv_message=>severity-error )
+        WHEN lr_header->CompanyCode IS NOT INITIAL
+         AND lt_warehouses[ WarehouseCode = lr_header->WarehouseCode ]-CompanyCode <> lr_header->CompanyCode
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>warehouse_company_mismatch
+                                 attr1    = CONV string( lr_header->WarehouseCode )
+                                 attr2    = CONV string( lr_header->CompanyCode )
+                                 severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky                   = lr_header->%tky
+                        %state_area            = c_val_warehouse
+                        %msg                   = lo_message
+                        %element-WarehouseCode = if_abap_behv=>mk-on ) TO reported-goodsreceipt.
+      ENDIF.
+
+      " 5. Currency: mandatory (taken from the purchase order; without an order only the order is reported)
+      lo_message = COND #(
+        WHEN lr_header->CurrencyCode IS INITIAL AND lr_header->PoReferenceUUID IS NOT INITIAL
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_currency
+                                 severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky                  = lr_header->%tky
+                        %state_area           = c_val_currency
+                        %msg                  = lo_message
+                        %element-CurrencyCode = if_abap_behv=>mk-on ) TO reported-goodsreceipt.
+      ENDIF.
+
+      " Any error fails the instance
+      IF lv_has_error = abap_true.
+        APPEND VALUE #( %tky        = lr_header->%tky
+                        %fail-cause = if_abap_behv=>cause-unspecific ) TO failed-goodsreceipt.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD validateDates.
+    DATA lv_has_error TYPE abap_bool.
+    DATA lo_message   TYPE REF TO if_abap_behv_message.
+
+    reported-goodsreceipt = VALUE #(
+      BASE reported-goodsreceipt
+      FOR key IN keys
+      ( %tky        = key-%tky
+        %state_area = c_val_doc_date )
+      ( %tky        = key-%tky
+        %state_area = c_val_post_date )
+    ).
+
+    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
+      ENTITY GoodsReceipt
+      FIELDS ( DocumentDate PostingDate Status )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_headers).
+
+    IF lt_headers IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    DATA(lv_today) = cl_abap_context_info=>get_system_date( ).
+
+    " Per field: the first rule that fails gives the message (none if the field is valid)
+    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
+      lv_has_error = abap_false.
+
+      " 1. Document date: mandatory, not in the future
+      lo_message = COND #(
+        WHEN lr_header->DocumentDate IS INITIAL
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>enter_document_date
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN zcl_merp_doc_validator=>is_document_date_valid( iv_doc_date = lr_header->DocumentDate
+                                                             iv_today    = lv_today ) = abap_false
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>document_date_future_invalid
+                                 severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky                  = lr_header->%tky
+                        %state_area           = c_val_doc_date
+                        %msg                  = lo_message
+                        %element-DocumentDate = if_abap_behv=>mk-on ) TO reported-goodsreceipt.
+      ENDIF.
+
+      " 2. Posting date: mandatory, not in the future, not before the document date
+      lo_message = COND #(
+        WHEN lr_header->PostingDate IS INITIAL
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>enter_posting_date
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN zcl_merp_doc_validator=>is_posting_date_not_future( iv_post_date = lr_header->PostingDate
+                                                                 iv_today     = lv_today ) = abap_false
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>posting_date_future_invalid
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN lr_header->DocumentDate IS NOT INITIAL
+         AND zcl_merp_doc_validator=>is_posting_date_valid( iv_doc_date  = lr_header->DocumentDate
+                                                            iv_post_date = lr_header->PostingDate ) = abap_false
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>posting_date_sequence_invalid
+                                 severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky                 = lr_header->%tky
+                        %state_area          = c_val_post_date
+                        %msg                 = lo_message
+                        %element-PostingDate = if_abap_behv=>mk-on ) TO reported-goodsreceipt.
+      ENDIF.
+
+      " Any error fails the instance
+      IF lv_has_error = abap_true.
+        APPEND VALUE #( %tky        = lr_header->%tky
+                        %fail-cause = if_abap_behv=>cause-unspecific ) TO failed-goodsreceipt.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
   METHOD validateDocumentNumber.
     READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
       ENTITY GoodsReceipt
@@ -1322,71 +1339,68 @@ CLASS lhc_zmerp_r_goodsreceipt IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
-  METHOD precheck_delete.
+  " --- Clearing of validation messages ---
+  METHOD clearMessagesForHeaderFields.
     IF keys IS INITIAL.
       RETURN.
     ENDIF.
 
-    DATA lv_failed_added TYPE abap_bool.
-
     READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
       ENTITY GoodsReceipt
-      FIELDS ( Status DocumentNumber )
+      FIELDS ( CompanyCode BusinessPartnerCode WarehouseCode CurrencyCode PoReferenceUUID )
       WITH CORRESPONDING #( keys )
       RESULT DATA(lt_headers).
 
-    IF lt_headers IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    " Usages of all documents in one selection (the selector skips initial keys)
-    DATA(lt_usages) = NEW zcl_merp_doc_gr_sel( )->zif_merp_doc_gr_sel~read_usages(
-      VALUE #( FOR hdr IN lt_headers ( DocumentUUID = hdr-DocumentUUID ) ) ).
-
-    LOOP AT lt_headers REFERENCE INTO DATA(lr_hdr).
-      lv_failed_added = abap_false.
-
-      IF zcl_merp_doc_gr_lifecycle=>can_delete( lr_hdr->Status ) = abap_false.
-        APPEND VALUE #(
-          %tky        = lr_hdr->%tky
-          %fail-cause = if_abap_behv=>cause-conflict
-        ) TO failed-goodsreceipt.
-
-        APPEND VALUE #(
-          %tky            = lr_hdr->%tky
-          %element-Status = if_abap_behv=>mk-on
-          %msg            = NEW zcx_merp_pur(
-                               textid   = zcx_merp_pur=>delete_not_allowed
-                               attr1    = CONV #( lr_hdr->DocumentNumber )
-                               severity = if_abap_behv_message=>severity-error )
-        ) TO reported-goodsreceipt.
-        CONTINUE.
+    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
+      IF lr_header->CompanyCode IS NOT INITIAL.
+        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_company ) TO reported-goodsreceipt.
       ENDIF.
-
-      " One message per using entity (sorted table: WHERE uses the table key)
-      LOOP AT lt_usages REFERENCE INTO DATA(lr_usage) WHERE DocumentUUID = lr_hdr->DocumentUUID.
-
-        IF lv_failed_added = abap_false.
-          APPEND VALUE #(
-            %tky        = lr_hdr->%tky
-            %fail-cause = if_abap_behv=>cause-dependency
-          ) TO failed-goodsreceipt.
-          lv_failed_added = abap_true.
-        ENDIF.
-
-        APPEND VALUE #(
-          %tky            = lr_hdr->%tky
-          %element-Status = if_abap_behv=>mk-on
-          %msg            = NEW zcx_merp_pur(
-                               textid   = zcx_merp_pur=>goods_receipt_in_use
-                               attr1    = CONV #( lr_hdr->DocumentNumber )
-                               attr2    = CONV #( lr_usage->UsedInEntity )
-                               severity = if_abap_behv_message=>severity-error )
-        ) TO reported-goodsreceipt.
-      ENDLOOP.
+      IF lr_header->BusinessPartnerCode IS NOT INITIAL.
+        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_partner ) TO reported-goodsreceipt.
+      ENDIF.
+      IF lr_header->WarehouseCode IS NOT INITIAL.
+        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_warehouse ) TO reported-goodsreceipt.
+      ENDIF.
+      IF lr_header->CurrencyCode IS NOT INITIAL.
+        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_currency ) TO reported-goodsreceipt.
+      ENDIF.
+      IF lr_header->PoReferenceUUID IS NOT INITIAL.
+        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_po_ref ) TO reported-goodsreceipt.
+      ENDIF.
     ENDLOOP.
   ENDMETHOD.
 
+  METHOD clearMessagesForDates.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
+      ENTITY GoodsReceipt
+      FIELDS ( DocumentDate PostingDate Status )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_headers).
+
+    DATA(lv_today) = cl_abap_context_info=>get_system_date( ).
+
+    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
+      IF lr_header->DocumentDate IS NOT INITIAL
+         AND zcl_merp_doc_validator=>is_document_date_valid( iv_doc_date = lr_header->DocumentDate
+                                                             iv_today    = lv_today ) = abap_true.
+        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_doc_date ) TO reported-goodsreceipt.
+      ENDIF.
+
+      IF lr_header->PostingDate IS NOT INITIAL AND lr_header->DocumentDate IS NOT INITIAL
+         AND zcl_merp_doc_validator=>is_posting_date_not_future( iv_post_date = lr_header->PostingDate
+                                                                 iv_today     = lv_today ) = abap_true
+         AND zcl_merp_doc_validator=>is_posting_date_valid( iv_doc_date  = lr_header->DocumentDate
+                                                            iv_post_date = lr_header->PostingDate ) = abap_true.
+        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_post_date ) TO reported-goodsreceipt.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  " --- Helpers ---
   METHOD calc_po_receipt_status.
     LOOP AT it_progress INTO DATA(ls_progress)
          GROUP BY ( po_uuid   = ls_progress-PoHeaderUUID
@@ -1476,12 +1490,19 @@ CLASS lhc_zmerp_r_goodsreceiptitm DEFINITION INHERITING FROM cl_abap_behavior_ha
     " and consumed (and cleared) by calcHeaderTotals within the same request
     CLASS-DATA gt_deleted_headers TYPE STANDARD TABLE OF ty_header_key WITH EMPTY KEY.
 
+    " --- Access and state ---
     "! Items copied from a purchase order: item code, price and VAT code are fixed by the order, only quantity can change.
     METHODS get_instance_features FOR INSTANCE FEATURES
       IMPORTING
         keys   REQUEST requested_features FOR GoodsReceiptItem
       RESULT   result.
 
+    "! Remembers the parent documents of the items being deleted, so that calcHeaderTotals
+    "! can still recalculate their totals after the deletion.
+    METHODS precheck_delete FOR PRECHECK
+      keys FOR DELETE GoodsReceiptItem.
+
+    " --- Actions ---
     "! Sets quantity and amounts of the selected purchase order items to the current open values;
     "! items without open quantity are only reported, the user decides whether to remove them.
     METHODS fillOpenQuantity FOR MODIFY
@@ -1489,10 +1510,11 @@ CLASS lhc_zmerp_r_goodsreceiptitm DEFINITION INHERITING FROM cl_abap_behavior_ha
         keys   FOR ACTION GoodsReceiptItem~fillOpenQuantity
       RESULT   result.
 
-    "! Recalculates total header net and gross amounts (via ZCL_MERP_DOC_CALC) when items are created, changed or deleted.
-    METHODS calcHeaderTotals FOR DETERMINE ON MODIFY
+    " --- Determinations on modify ---
+    "! Sets item defaults (ItemNo, Currency, UoM, VatCode) based on header and selected ItemCode.
+    METHODS setItemDefaults FOR DETERMINE ON MODIFY
       IMPORTING
-        keys FOR GoodsReceiptItem~calcHeaderTotals.
+        keys FOR GoodsReceiptItem~setItemDefaults.
 
     "! Recalculates net, VAT and gross amounts of the item when quantity or price changes (via ZCL_MERP_DOC_CALC).
     METHODS calcAmountsOnQtyPrice FOR DETERMINE ON MODIFY
@@ -1504,36 +1526,34 @@ CLASS lhc_zmerp_r_goodsreceiptitm DEFINITION INHERITING FROM cl_abap_behavior_ha
       IMPORTING
         keys FOR GoodsReceiptItem~calcAmountsOnVatCode.
 
-    "! Sets item defaults (ItemNo, Currency, UoM, VatCode) based on header and selected ItemCode.
-    METHODS setItemDefaults FOR DETERMINE ON MODIFY
+    "! Recalculates total header net and gross amounts (via ZCL_MERP_DOC_CALC) when items are created, changed or deleted.
+    METHODS calcHeaderTotals FOR DETERMINE ON MODIFY
       IMPORTING
-        keys FOR GoodsReceiptItem~setItemDefaults.
+        keys FOR GoodsReceiptItem~calcHeaderTotals.
 
+    " --- Validations ---
     "! Validates item fields before saving: mandatory values, existence of item and VAT code in master data,
     "! duplicate item codes, positive quantity and price.
     METHODS validateItemFields FOR VALIDATE ON SAVE
       IMPORTING
         keys FOR GoodsReceiptItem~validateItemFields.
 
-    "! Re-evaluates duplicate item code messages for ALL items of the document when an item code changes.
-    METHODS handleMessagesOnItemModify FOR DETERMINE ON MODIFY
-      IMPORTING
-        keys FOR GoodsReceiptItem~handleMessagesOnItemModify.
-
+    " --- Clearing of validation messages ---
     "! Clears validation messages of quantity, price, unit of measure and VAT code once the values are valid/filled.
     METHODS clearMessagesForItemFields FOR DETERMINE ON MODIFY
       IMPORTING
         keys FOR GoodsReceiptItem~clearMessagesForItemFields.
 
-    "! Remembers the parent documents of the items being deleted, so that calcHeaderTotals
-    "! can still recalculate their totals after the deletion.
-    METHODS precheck_delete FOR PRECHECK
-      keys FOR DELETE GoodsReceiptItem.
+    "! Re-evaluates duplicate item code messages for ALL items of the document when an item code changes.
+    METHODS handleMessagesOnItemModify FOR DETERMINE ON MODIFY
+      IMPORTING
+        keys FOR GoodsReceiptItem~handleMessagesOnItemModify.
 
 ENDCLASS.
 
 CLASS lhc_zmerp_r_goodsreceiptitm IMPLEMENTATION.
 
+  " --- Access and state ---
   METHOD get_instance_features.
     IF keys IS INITIAL.
       RETURN.
@@ -1565,6 +1585,21 @@ CLASS lhc_zmerp_r_goodsreceiptitm IMPLEMENTATION.
     ).
   ENDMETHOD.
 
+  METHOD precheck_delete.
+    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
+      ENTITY GoodsReceiptItem
+      FIELDS ( HeaderUUID )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_items).
+
+    " Parents of the deleted items, for calcHeaderTotals
+    gt_deleted_headers = VALUE #( BASE gt_deleted_headers
+      FOR item IN lt_items ( document_uuid = item-HeaderUUID
+                             is_draft      = item-%is_draft ) ).
+
+  ENDMETHOD.
+
+  " --- Actions ---
   METHOD fillOpenQuantity.
     DATA lt_items_update TYPE TABLE FOR UPDATE zmerp_r_goodsreceipt\\GoodsReceiptItem.
 
@@ -1631,362 +1666,7 @@ CLASS lhc_zmerp_r_goodsreceiptitm IMPLEMENTATION.
     result = VALUE #( FOR item IN lt_result ( %tky = item-%tky %param = item ) ).
   ENDMETHOD.
 
-  METHOD validateItemFields.
-    DATA lv_has_error TYPE abap_bool.
-    DATA lo_message   TYPE REF TO if_abap_behv_message.
-
-    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
-      ENTITY GoodsReceiptItem
-      FIELDS ( HeaderUUID ItemCode Quantity Price UnitOfMeasure VatCode PoItemReferenceUUID )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_items).
-
-    IF lt_items IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    " Clear the messages of the previous validation run
-    DATA(lt_state_areas) = VALUE string_table(
-      ( c_val_item_code )
-      ( c_val_quantity )
-      ( c_val_price )
-      ( c_val_uom )
-      ( c_val_vat_code ) ).
-
-    reported-goodsreceiptitem = VALUE #(
-      BASE reported-goodsreceiptitem
-      FOR item IN lt_items
-      FOR area IN lt_state_areas
-      ( %tky        = item-%tky
-        %path       = VALUE #( GoodsReceipt-%is_draft    = item-%is_draft
-                               GoodsReceipt-DocumentUUID = item-HeaderUUID )
-        %state_area = area )
-    ).
-
-    " Documents of the checked items: duplicates are searched among all their items
-    DATA lt_header_keys TYPE TABLE FOR READ IMPORT zmerp_r_goodsreceipt.
-    lt_header_keys = VALUE #(
-      FOR GROUPS of <g> IN lt_items GROUP BY ( HeaderUUID = <g>-HeaderUUID
-                                               is_draft   = <g>-%is_draft )
-      ( %tky-DocumentUUID = <g>-HeaderUUID
-        %is_draft         = <g>-%is_draft )
-    ).
-
-    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
-      ENTITY GoodsReceipt BY \_Items
-      FIELDS ( HeaderUUID ItemCode PoItemReferenceUUID )
-      WITH CORRESPONDING #( lt_header_keys )
-      RESULT DATA(lt_all_document_items).
-
-    " Duplicates are checked among manual lines only: a purchase order line exists once per order item
-    " (created by deriveDocFromPurchaseOrder, reference read-only), and a manual line may repeat its item
-    DATA(lt_duplicates) = zcl_merp_doc_validator=>get_duplicate_item_codes(
-      VALUE #( FOR doc_item IN lt_all_document_items WHERE ( PoItemReferenceUUID IS INITIAL )
-               ( HeaderUUID = doc_item-HeaderUUID
-                 ItemCode   = doc_item-ItemCode ) )
-    ).
-
-    " Referenced master data in one selection each
-    DATA(lt_items_master) = NEW zcl_merp_md_item_sel( )->zif_merp_md_item_sel~read_items(
-      VALUE #( FOR item IN lt_items ( ItemCode = item-ItemCode ) )
-    ).
-
-    DATA(lt_vat_rates) = NEW zcl_merp_md_vat_rate_sel( )->zif_merp_md_vat_rate_sel~read_vat_rates(
-      VALUE #( FOR item IN lt_items ( VatCode = item-VatCode ) )
-    ).
-
-    " Per field: the first rule that fails gives the message (none if the field is valid)
-    LOOP AT lt_items REFERENCE INTO DATA(lr_item).
-      lv_has_error = abap_false.
-
-      " 1. Item: mandatory, exists, not twice among manual lines
-      lo_message = COND #(
-        WHEN lr_item->ItemCode IS INITIAL
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_item
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN NOT line_exists( lt_items_master[ ItemCode = lr_item->ItemCode ] )
-          THEN NEW zcx_merp_md( textid   = zcx_merp_md=>item_not_found
-                                attr1    = CONV string( lr_item->ItemCode )
-                                severity = if_abap_behv_message=>severity-error )
-        WHEN lr_item->PoItemReferenceUUID IS INITIAL
-         AND line_exists( lt_duplicates[ HeaderUUID = lr_item->HeaderUUID
-                                         ItemCode   = lr_item->ItemCode ] )
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>item_duplicate_invalid
-                                 attr1    = CONV string( lr_item->ItemCode )
-                                 severity = if_abap_behv_message=>severity-error ) ).
-
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky              = lr_item->%tky
-                        %path             = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
-                                                     GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
-                        %state_area       = c_val_item_code
-                        %msg              = lo_message
-                        %element-ItemCode = if_abap_behv=>mk-on ) TO reported-goodsreceiptitem.
-      ENDIF.
-
-      " 2. Quantity: greater than zero
-      lo_message = COND #(
-        WHEN zcl_merp_doc_validator=>is_item_quantity_valid( lr_item->Quantity ) = abap_false
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>quantity_must_be_positive
-                                 severity = if_abap_behv_message=>severity-error ) ).
-
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky              = lr_item->%tky
-                        %path             = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
-                                                     GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
-                        %state_area       = c_val_quantity
-                        %msg              = lo_message
-                        %element-Quantity = if_abap_behv=>mk-on ) TO reported-goodsreceiptitem.
-      ENDIF.
-
-      " 3. Price: greater than zero
-      lo_message = COND #(
-        WHEN zcl_merp_doc_validator=>is_item_price_valid( lr_item->Price ) = abap_false
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>price_must_be_positive
-                                 severity = if_abap_behv_message=>severity-error ) ).
-
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky           = lr_item->%tky
-                        %path          = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
-                                                  GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
-                        %state_area    = c_val_price
-                        %msg           = lo_message
-                        %element-Price = if_abap_behv=>mk-on ) TO reported-goodsreceiptitem.
-      ENDIF.
-
-      " 4. Unit of measure: mandatory
-      lo_message = COND #(
-        WHEN lr_item->UnitOfMeasure IS INITIAL
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_unit_of_measure
-                                 severity = if_abap_behv_message=>severity-error ) ).
-
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky                   = lr_item->%tky
-                        %path                  = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
-                                                          GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
-                        %state_area            = c_val_uom
-                        %msg                   = lo_message
-                        %element-UnitOfMeasure = if_abap_behv=>mk-on ) TO reported-goodsreceiptitem.
-      ENDIF.
-
-      " 5. VAT code: mandatory, exists
-      lo_message = COND #(
-        WHEN lr_item->VatCode IS INITIAL
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_vat_code
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN NOT line_exists( lt_vat_rates[ VatCode = lr_item->VatCode ] )
-          THEN NEW zcx_merp_md( textid   = zcx_merp_md=>vat_code_not_found
-                                attr1    = CONV string( lr_item->VatCode )
-                                severity = if_abap_behv_message=>severity-error ) ).
-
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky             = lr_item->%tky
-                        %path            = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
-                                                    GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
-                        %state_area      = c_val_vat_code
-                        %msg             = lo_message
-                        %element-VatCode = if_abap_behv=>mk-on ) TO reported-goodsreceiptitem.
-      ENDIF.
-
-      " Any error fails the instance
-      IF lv_has_error = abap_true.
-        APPEND VALUE #( %tky        = lr_item->%tky
-                        %fail-cause = if_abap_behv=>cause-unspecific ) TO failed-goodsreceiptitem.
-      ENDIF.
-    ENDLOOP.
-  ENDMETHOD.
-
-  METHOD handleMessagesOnItemModify.
-    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
-      ENTITY GoodsReceiptItem
-      FIELDS ( HeaderUUID ItemCode )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_items).
-
-    IF lt_items IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    DATA lt_header_keys TYPE TABLE FOR READ IMPORT zmerp_r_goodsreceipt.
-
-    " Documents of the changed items
-    lt_header_keys = VALUE #(
-      FOR GROUPS of <g> IN lt_items GROUP BY ( HeaderUUID = <g>-HeaderUUID
-                                               is_draft   = <g>-%is_draft )
-      ( %tky-DocumentUUID = <g>-HeaderUUID
-        %is_draft         = <g>-%is_draft )
-    ).
-
-    " All items of these documents: a changed item can create or remove a duplicate on another item
-    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
-      ENTITY GoodsReceipt BY \_Items
-      FIELDS ( HeaderUUID ItemCode PoItemReferenceUUID )
-      WITH CORRESPONDING #( lt_header_keys )
-      RESULT DATA(lt_all_document_items).
-
-    " Duplicate messages of all items are evaluated again
-    reported-goodsreceiptitem = VALUE #(
-      BASE reported-goodsreceiptitem
-      FOR ls_all_item IN lt_all_document_items
-      ( %tky        = ls_all_item-%tky
-        %path       = VALUE #( GoodsReceipt-%is_draft    = ls_all_item-%is_draft
-                               GoodsReceipt-DocumentUUID = ls_all_item-HeaderUUID )
-        %state_area = c_val_item_code )
-    ).
-
-    " Duplicates among manual lines only (see validateItemFields)
-    DATA(lt_duplicates) = zcl_merp_doc_validator=>get_duplicate_item_codes(
-      VALUE #( FOR doc_item IN lt_all_document_items WHERE ( PoItemReferenceUUID IS INITIAL )
-               ( HeaderUUID = doc_item-HeaderUUID
-                 ItemCode   = doc_item-ItemCode ) )
-    ).
-
-    IF lt_duplicates IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    " Every item that is part of a duplicate gets the message
-    LOOP AT lt_all_document_items REFERENCE INTO DATA(lr_doc_item) WHERE ItemCode            IS NOT INITIAL
-                                                                     AND PoItemReferenceUUID IS INITIAL.
-
-      IF line_exists( lt_duplicates[ HeaderUUID = lr_doc_item->HeaderUUID
-                                     ItemCode   = lr_doc_item->ItemCode ] ).
-
-        APPEND VALUE #(
-          %tky              = lr_doc_item->%tky
-          %path             = VALUE #( GoodsReceipt-%is_draft    = lr_doc_item->%is_draft
-                                       GoodsReceipt-DocumentUUID = lr_doc_item->HeaderUUID )
-          %state_area       = c_val_item_code
-          %msg              = NEW zcx_merp_pur(
-                                textid   = zcx_merp_pur=>item_duplicate_invalid
-                                attr1    = CONV string( lr_doc_item->ItemCode )
-                                severity = if_abap_behv_message=>severity-error )
-          %element-ItemCode = if_abap_behv=>mk-on
-        ) TO reported-goodsreceiptitem.
-      ENDIF.
-    ENDLOOP.
-  ENDMETHOD.
-
-  METHOD clearMessagesForItemFields.
-    IF keys IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    " A message is cleared once the field is valid or filled
-    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
-      ENTITY GoodsReceiptItem
-      FIELDS ( HeaderUUID Quantity Price UnitOfMeasure VatCode )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_items).
-
-    IF lt_items IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    LOOP AT lt_items REFERENCE INTO DATA(lr_item).
-
-      " 1. Quantity
-      IF zcl_merp_doc_validator=>is_item_quantity_valid( lr_item->Quantity ) = abap_true.
-        APPEND VALUE #( %tky        = lr_item->%tky
-                        %path       = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
-                                               GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
-                        %state_area = c_val_quantity ) TO reported-goodsreceiptitem.
-      ENDIF.
-
-      " 2. Price
-      IF zcl_merp_doc_validator=>is_item_price_valid( lr_item->Price ) = abap_true.
-        APPEND VALUE #( %tky        = lr_item->%tky
-                        %path       = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
-                                               GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
-                        %state_area = c_val_price ) TO reported-goodsreceiptitem.
-      ENDIF.
-
-      " 3. Unit of measure
-      IF lr_item->UnitOfMeasure IS NOT INITIAL.
-        APPEND VALUE #( %tky        = lr_item->%tky
-                        %path       = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
-                                               GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
-                        %state_area = c_val_uom ) TO reported-goodsreceiptitem.
-      ENDIF.
-
-      " 4. VAT code
-      IF lr_item->VatCode IS NOT INITIAL.
-        APPEND VALUE #( %tky        = lr_item->%tky
-                        %path       = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
-                                               GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
-                        %state_area = c_val_vat_code ) TO reported-goodsreceiptitem.
-      ENDIF.
-
-    ENDLOOP.
-  ENDMETHOD.
-
-  METHOD calcHeaderTotals.
-    " Read parent headers of the created/changed items (deleted items can no longer be read)
-    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
-      ENTITY GoodsReceiptItem BY \_GoodsReceipt
-      FIELDS ( DocumentUUID )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_headers).
-
-    " Add parents of the items deleted in this request (collected in precheck_delete)
-    LOOP AT gt_deleted_headers REFERENCE INTO DATA(lr_deleted).
-      APPEND VALUE #( DocumentUUID = lr_deleted->document_uuid
-                      %is_draft    = lr_deleted->is_draft ) TO lt_headers.
-    ENDLOOP.
-    CLEAR gt_deleted_headers.
-
-    IF lt_headers IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    " Each header once (several items of one document)
-    SORT lt_headers BY DocumentUUID %is_draft.
-    DELETE ADJACENT DUPLICATES FROM lt_headers COMPARING DocumentUUID %is_draft.
-
-    " Read all items of those headers in one call to pass into the shared item logic
-    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
-      ENTITY GoodsReceipt BY \_Items
-      FIELDS ( HeaderUUID NetAmount VatAmount GrossAmount )
-      WITH CORRESPONDING #( lt_headers )
-      RESULT DATA(lt_items).
-
-    " Delegate the summation to the shared item logic (same for all documents)
-    DATA(lt_totals) = NEW zcl_merp_doc_item_logic( )->calc_header_totals(
-      it_header_keys = VALUE #( FOR header IN lt_headers
-                                ( HeaderUUID = header-DocumentUUID
-                                  IsDraft    = header-%is_draft ) )
-      it_items       = CORRESPONDING #( lt_items MAPPING IsDraft = %is_draft ) ).
-
-    DATA lt_gr_update TYPE TABLE FOR UPDATE zmerp_r_goodsreceipt.
-
-    LOOP AT lt_totals REFERENCE INTO DATA(lr_total).
-      ASSIGN lt_headers[ DocumentUUID = lr_total->HeaderUUID
-                         %is_draft    = lr_total->IsDraft ] TO FIELD-SYMBOL(<ls_header>).
-
-      IF sy-subrc = 0.
-        APPEND VALUE #(
-          %tky                      = <ls_header>-%tky
-          TotalNetAmount            = lr_total->TotalNetAmount
-          TotalGrossAmount          = lr_total->TotalGrossAmount
-          %control-TotalNetAmount   = if_abap_behv=>mk-on
-          %control-TotalGrossAmount = if_abap_behv=>mk-on
-        ) TO lt_gr_update.
-      ENDIF.
-    ENDLOOP.
-
-    IF lt_gr_update IS NOT INITIAL.
-      MODIFY ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
-        ENTITY GoodsReceipt
-        UPDATE FIELDS ( TotalNetAmount TotalGrossAmount )
-        WITH lt_gr_update.
-    ENDIF.
-  ENDMETHOD.
-
+  " --- Determinations on modify ---
   METHOD setItemDefaults.
 
     " Items and their parent headers (document currency)
@@ -2164,18 +1844,362 @@ CLASS lhc_zmerp_r_goodsreceiptitm IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
-  METHOD precheck_delete.
+  METHOD calcHeaderTotals.
+    " Read parent headers of the created/changed items (deleted items can no longer be read)
+    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
+      ENTITY GoodsReceiptItem BY \_GoodsReceipt
+      FIELDS ( DocumentUUID )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_headers).
+
+    " Add parents of the items deleted in this request (collected in precheck_delete)
+    LOOP AT gt_deleted_headers REFERENCE INTO DATA(lr_deleted).
+      APPEND VALUE #( DocumentUUID = lr_deleted->document_uuid
+                      %is_draft    = lr_deleted->is_draft ) TO lt_headers.
+    ENDLOOP.
+    CLEAR gt_deleted_headers.
+
+    IF lt_headers IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    " Each header once (several items of one document)
+    SORT lt_headers BY DocumentUUID %is_draft.
+    DELETE ADJACENT DUPLICATES FROM lt_headers COMPARING DocumentUUID %is_draft.
+
+    " Read all items of those headers in one call to pass into the shared item logic
+    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
+      ENTITY GoodsReceipt BY \_Items
+      FIELDS ( HeaderUUID NetAmount VatAmount GrossAmount )
+      WITH CORRESPONDING #( lt_headers )
+      RESULT DATA(lt_items).
+
+    " Delegate the summation to the shared item logic (same for all documents)
+    DATA(lt_totals) = NEW zcl_merp_doc_item_logic( )->calc_header_totals(
+      it_header_keys = VALUE #( FOR header IN lt_headers
+                                ( HeaderUUID = header-DocumentUUID
+                                  IsDraft    = header-%is_draft ) )
+      it_items       = CORRESPONDING #( lt_items MAPPING IsDraft = %is_draft ) ).
+
+    DATA lt_gr_update TYPE TABLE FOR UPDATE zmerp_r_goodsreceipt.
+
+    LOOP AT lt_totals REFERENCE INTO DATA(lr_total).
+      ASSIGN lt_headers[ DocumentUUID = lr_total->HeaderUUID
+                         %is_draft    = lr_total->IsDraft ] TO FIELD-SYMBOL(<ls_header>).
+
+      IF sy-subrc = 0.
+        APPEND VALUE #(
+          %tky                      = <ls_header>-%tky
+          TotalNetAmount            = lr_total->TotalNetAmount
+          TotalGrossAmount          = lr_total->TotalGrossAmount
+          %control-TotalNetAmount   = if_abap_behv=>mk-on
+          %control-TotalGrossAmount = if_abap_behv=>mk-on
+        ) TO lt_gr_update.
+      ENDIF.
+    ENDLOOP.
+
+    IF lt_gr_update IS NOT INITIAL.
+      MODIFY ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
+        ENTITY GoodsReceipt
+        UPDATE FIELDS ( TotalNetAmount TotalGrossAmount )
+        WITH lt_gr_update.
+    ENDIF.
+  ENDMETHOD.
+
+  " --- Validations ---
+  METHOD validateItemFields.
+    DATA lv_has_error TYPE abap_bool.
+    DATA lo_message   TYPE REF TO if_abap_behv_message.
+
     READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
       ENTITY GoodsReceiptItem
-      FIELDS ( HeaderUUID )
+      FIELDS ( HeaderUUID ItemCode Quantity Price UnitOfMeasure VatCode PoItemReferenceUUID )
       WITH CORRESPONDING #( keys )
       RESULT DATA(lt_items).
 
-    " Parents of the deleted items, for calcHeaderTotals
-    gt_deleted_headers = VALUE #( BASE gt_deleted_headers
-      FOR item IN lt_items ( document_uuid = item-HeaderUUID
-                             is_draft      = item-%is_draft ) ).
+    IF lt_items IS INITIAL.
+      RETURN.
+    ENDIF.
 
+    " Clear the messages of the previous validation run
+    DATA(lt_state_areas) = VALUE string_table(
+      ( c_val_item_code )
+      ( c_val_quantity )
+      ( c_val_price )
+      ( c_val_uom )
+      ( c_val_vat_code ) ).
+
+    reported-goodsreceiptitem = VALUE #(
+      BASE reported-goodsreceiptitem
+      FOR item IN lt_items
+      FOR area IN lt_state_areas
+      ( %tky        = item-%tky
+        %path       = VALUE #( GoodsReceipt-%is_draft    = item-%is_draft
+                               GoodsReceipt-DocumentUUID = item-HeaderUUID )
+        %state_area = area )
+    ).
+
+    " Documents of the checked items: duplicates are searched among all their items
+    DATA lt_header_keys TYPE TABLE FOR READ IMPORT zmerp_r_goodsreceipt.
+    lt_header_keys = VALUE #(
+      FOR GROUPS of <g> IN lt_items GROUP BY ( HeaderUUID = <g>-HeaderUUID
+                                               is_draft   = <g>-%is_draft )
+      ( %tky-DocumentUUID = <g>-HeaderUUID
+        %is_draft         = <g>-%is_draft )
+    ).
+
+    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
+      ENTITY GoodsReceipt BY \_Items
+      FIELDS ( HeaderUUID ItemCode PoItemReferenceUUID )
+      WITH CORRESPONDING #( lt_header_keys )
+      RESULT DATA(lt_all_document_items).
+
+    " Duplicates are checked among manual lines only: a purchase order line exists once per order item
+    " (created by deriveDocFromPurchaseOrder, reference read-only), and a manual line may repeat its item
+    DATA(lt_duplicates) = zcl_merp_doc_validator=>get_duplicate_item_codes(
+      VALUE #( FOR doc_item IN lt_all_document_items WHERE ( PoItemReferenceUUID IS INITIAL )
+               ( HeaderUUID = doc_item-HeaderUUID
+                 ItemCode   = doc_item-ItemCode ) )
+    ).
+
+    " Referenced master data in one selection each
+    DATA(lt_items_master) = NEW zcl_merp_md_item_sel( )->zif_merp_md_item_sel~read_items(
+      VALUE #( FOR item IN lt_items ( ItemCode = item-ItemCode ) )
+    ).
+
+    DATA(lt_vat_rates) = NEW zcl_merp_md_vat_rate_sel( )->zif_merp_md_vat_rate_sel~read_vat_rates(
+      VALUE #( FOR item IN lt_items ( VatCode = item-VatCode ) )
+    ).
+
+    " Per field: the first rule that fails gives the message (none if the field is valid)
+    LOOP AT lt_items REFERENCE INTO DATA(lr_item).
+      lv_has_error = abap_false.
+
+      " 1. Item: mandatory, exists, not twice among manual lines
+      lo_message = COND #(
+        WHEN lr_item->ItemCode IS INITIAL
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_item
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN NOT line_exists( lt_items_master[ ItemCode = lr_item->ItemCode ] )
+          THEN NEW zcx_merp_md( textid   = zcx_merp_md=>item_not_found
+                                attr1    = CONV string( lr_item->ItemCode )
+                                severity = if_abap_behv_message=>severity-error )
+        WHEN lr_item->PoItemReferenceUUID IS INITIAL
+         AND line_exists( lt_duplicates[ HeaderUUID = lr_item->HeaderUUID
+                                         ItemCode   = lr_item->ItemCode ] )
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>item_duplicate_invalid
+                                 attr1    = CONV string( lr_item->ItemCode )
+                                 severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky              = lr_item->%tky
+                        %path             = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
+                                                     GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
+                        %state_area       = c_val_item_code
+                        %msg              = lo_message
+                        %element-ItemCode = if_abap_behv=>mk-on ) TO reported-goodsreceiptitem.
+      ENDIF.
+
+      " 2. Quantity: greater than zero
+      lo_message = COND #(
+        WHEN zcl_merp_doc_validator=>is_item_quantity_valid( lr_item->Quantity ) = abap_false
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>quantity_must_be_positive
+                                 severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky              = lr_item->%tky
+                        %path             = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
+                                                     GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
+                        %state_area       = c_val_quantity
+                        %msg              = lo_message
+                        %element-Quantity = if_abap_behv=>mk-on ) TO reported-goodsreceiptitem.
+      ENDIF.
+
+      " 3. Price: greater than zero
+      lo_message = COND #(
+        WHEN zcl_merp_doc_validator=>is_item_price_valid( lr_item->Price ) = abap_false
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>price_must_be_positive
+                                 severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky           = lr_item->%tky
+                        %path          = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
+                                                  GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
+                        %state_area    = c_val_price
+                        %msg           = lo_message
+                        %element-Price = if_abap_behv=>mk-on ) TO reported-goodsreceiptitem.
+      ENDIF.
+
+      " 4. Unit of measure: mandatory
+      lo_message = COND #(
+        WHEN lr_item->UnitOfMeasure IS INITIAL
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_unit_of_measure
+                                 severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky                   = lr_item->%tky
+                        %path                  = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
+                                                          GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
+                        %state_area            = c_val_uom
+                        %msg                   = lo_message
+                        %element-UnitOfMeasure = if_abap_behv=>mk-on ) TO reported-goodsreceiptitem.
+      ENDIF.
+
+      " 5. VAT code: mandatory, exists
+      lo_message = COND #(
+        WHEN lr_item->VatCode IS INITIAL
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_vat_code
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN NOT line_exists( lt_vat_rates[ VatCode = lr_item->VatCode ] )
+          THEN NEW zcx_merp_md( textid   = zcx_merp_md=>vat_code_not_found
+                                attr1    = CONV string( lr_item->VatCode )
+                                severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky             = lr_item->%tky
+                        %path            = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
+                                                    GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
+                        %state_area      = c_val_vat_code
+                        %msg             = lo_message
+                        %element-VatCode = if_abap_behv=>mk-on ) TO reported-goodsreceiptitem.
+      ENDIF.
+
+      " Any error fails the instance
+      IF lv_has_error = abap_true.
+        APPEND VALUE #( %tky        = lr_item->%tky
+                        %fail-cause = if_abap_behv=>cause-unspecific ) TO failed-goodsreceiptitem.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  " --- Clearing of validation messages ---
+  METHOD clearMessagesForItemFields.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    " A message is cleared once the field is valid or filled
+    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
+      ENTITY GoodsReceiptItem
+      FIELDS ( HeaderUUID Quantity Price UnitOfMeasure VatCode )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_items).
+
+    IF lt_items IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    LOOP AT lt_items REFERENCE INTO DATA(lr_item).
+
+      " 1. Quantity
+      IF zcl_merp_doc_validator=>is_item_quantity_valid( lr_item->Quantity ) = abap_true.
+        APPEND VALUE #( %tky        = lr_item->%tky
+                        %path       = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
+                                               GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
+                        %state_area = c_val_quantity ) TO reported-goodsreceiptitem.
+      ENDIF.
+
+      " 2. Price
+      IF zcl_merp_doc_validator=>is_item_price_valid( lr_item->Price ) = abap_true.
+        APPEND VALUE #( %tky        = lr_item->%tky
+                        %path       = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
+                                               GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
+                        %state_area = c_val_price ) TO reported-goodsreceiptitem.
+      ENDIF.
+
+      " 3. Unit of measure
+      IF lr_item->UnitOfMeasure IS NOT INITIAL.
+        APPEND VALUE #( %tky        = lr_item->%tky
+                        %path       = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
+                                               GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
+                        %state_area = c_val_uom ) TO reported-goodsreceiptitem.
+      ENDIF.
+
+      " 4. VAT code
+      IF lr_item->VatCode IS NOT INITIAL.
+        APPEND VALUE #( %tky        = lr_item->%tky
+                        %path       = VALUE #( GoodsReceipt-%is_draft    = lr_item->%is_draft
+                                               GoodsReceipt-DocumentUUID = lr_item->HeaderUUID )
+                        %state_area = c_val_vat_code ) TO reported-goodsreceiptitem.
+      ENDIF.
+
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD handleMessagesOnItemModify.
+    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
+      ENTITY GoodsReceiptItem
+      FIELDS ( HeaderUUID ItemCode )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_items).
+
+    IF lt_items IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    DATA lt_header_keys TYPE TABLE FOR READ IMPORT zmerp_r_goodsreceipt.
+
+    " Documents of the changed items
+    lt_header_keys = VALUE #(
+      FOR GROUPS of <g> IN lt_items GROUP BY ( HeaderUUID = <g>-HeaderUUID
+                                               is_draft   = <g>-%is_draft )
+      ( %tky-DocumentUUID = <g>-HeaderUUID
+        %is_draft         = <g>-%is_draft )
+    ).
+
+    " All items of these documents: a changed item can create or remove a duplicate on another item
+    READ ENTITIES OF zmerp_r_goodsreceipt IN LOCAL MODE
+      ENTITY GoodsReceipt BY \_Items
+      FIELDS ( HeaderUUID ItemCode PoItemReferenceUUID )
+      WITH CORRESPONDING #( lt_header_keys )
+      RESULT DATA(lt_all_document_items).
+
+    " Duplicate messages of all items are evaluated again
+    reported-goodsreceiptitem = VALUE #(
+      BASE reported-goodsreceiptitem
+      FOR ls_all_item IN lt_all_document_items
+      ( %tky        = ls_all_item-%tky
+        %path       = VALUE #( GoodsReceipt-%is_draft    = ls_all_item-%is_draft
+                               GoodsReceipt-DocumentUUID = ls_all_item-HeaderUUID )
+        %state_area = c_val_item_code )
+    ).
+
+    " Duplicates among manual lines only (see validateItemFields)
+    DATA(lt_duplicates) = zcl_merp_doc_validator=>get_duplicate_item_codes(
+      VALUE #( FOR doc_item IN lt_all_document_items WHERE ( PoItemReferenceUUID IS INITIAL )
+               ( HeaderUUID = doc_item-HeaderUUID
+                 ItemCode   = doc_item-ItemCode ) )
+    ).
+
+    IF lt_duplicates IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    " Every item that is part of a duplicate gets the message
+    LOOP AT lt_all_document_items REFERENCE INTO DATA(lr_doc_item) WHERE ItemCode            IS NOT INITIAL
+                                                                     AND PoItemReferenceUUID IS INITIAL.
+
+      IF line_exists( lt_duplicates[ HeaderUUID = lr_doc_item->HeaderUUID
+                                     ItemCode   = lr_doc_item->ItemCode ] ).
+
+        APPEND VALUE #(
+          %tky              = lr_doc_item->%tky
+          %path             = VALUE #( GoodsReceipt-%is_draft    = lr_doc_item->%is_draft
+                                       GoodsReceipt-DocumentUUID = lr_doc_item->HeaderUUID )
+          %state_area       = c_val_item_code
+          %msg              = NEW zcx_merp_pur(
+                                textid   = zcx_merp_pur=>item_duplicate_invalid
+                                attr1    = CONV string( lr_doc_item->ItemCode )
+                                severity = if_abap_behv_message=>severity-error )
+          %element-ItemCode = if_abap_behv=>mk-on
+        ) TO reported-goodsreceiptitem.
+      ENDIF.
+    ENDLOOP.
   ENDMETHOD.
 
 ENDCLASS.
@@ -2192,21 +2216,24 @@ ENDCLASS.
 CLASS lsc_zmerp_r_goodsreceipt IMPLEMENTATION.
 
   METHOD save_modified.
+    DATA lt_changed   TYPE zcl_merp_stock_posting=>tt_document_keys.
     DATA lt_posted    TYPE TABLE FOR READ IMPORT zmerp_r_goodsreceipt.
-    DATA lt_movements TYPE STANDARD TABLE OF zmerp_stock_mov WITH EMPTY KEY.
+    DATA lt_movements TYPE zcl_merp_stock_posting=>tt_movements.
 
     " Only status changes are relevant for stock
     LOOP AT update-goodsreceipt REFERENCE INTO DATA(lr_header)
          WHERE %control-Status = if_abap_behv=>mk-on.
 
-      " 1. Any status change first removes the movements of the document (no-op if there are none)
-      DELETE FROM zmerp_stock_mov WHERE document_uuid = @lr_header->DocumentUUID.
+      " Any status change first removes the movements of the document ...
+      APPEND VALUE #( document_uuid = lr_header->DocumentUUID ) TO lt_changed.
 
-      " 2. Posted documents get new movements
+      " ... and posted documents get new movements
       IF zcl_merp_doc_gr_lifecycle=>is_posted( lr_header->Status ) = abap_true.
-         APPEND VALUE #( %key = lr_header->%key ) TO lt_posted.
+        APPEND VALUE #( %key = lr_header->%key ) TO lt_posted.
       ENDIF.
     ENDLOOP.
+
+    zcl_merp_stock_posting=>delete_document_movements( lt_changed ).
 
     IF lt_posted IS INITIAL.
       RETURN.
@@ -2222,57 +2249,33 @@ CLASS lsc_zmerp_r_goodsreceipt IMPLEMENTATION.
         WITH CORRESPONDING #( lt_posted )
         RESULT DATA(lt_items).
 
-    " Services are received (purchase order progress) but are not kept in stock
-    DATA(lt_items_master) = NEW zcl_merp_md_item_sel( )->zif_merp_md_item_sel~read_items(
-      VALUE #( FOR item IN lt_items ( ItemCode = item-ItemCode ) ) ).
-
-    DATA(lv_user) = cl_abap_context_info=>get_user_technical_name( ).
-    GET TIME STAMP FIELD DATA(lv_timestamp).
-
     " One incoming movement per goods receipt item: positive quantity, value = net amount
-    " (the document currency equals the company currency, checked on posting)
+    " (the document currency equals the company currency, checked on posting);
+    " services are skipped by the stock posting
     LOOP AT lt_items REFERENCE INTO DATA(lr_item).
       ASSIGN lt_headers[ DocumentUUID = lr_item->HeaderUUID ] TO FIELD-SYMBOL(<ls_header>).
       IF sy-subrc <> 0.
         CONTINUE.
       ENDIF.
 
-      IF VALUE #( lt_items_master[ ItemCode = lr_item->ItemCode ]-ItemTypeCode OPTIONAL )
-         = zif_merp_constants=>c_item_type-service.
-        CONTINUE.
-      ENDIF.
-
-      TRY.
-          APPEND VALUE #(
-            movement_uuid         = cl_system_uuid=>create_uuid_x16_static( )
-            company_code          = <ls_header>-CompanyCode
-            warehouse_code        = <ls_header>-WarehouseCode
-            item_code             = lr_item->ItemCode
-            quantity              = lr_item->Quantity
-            unit_of_measure       = lr_item->UnitOfMeasure
-            amount                = lr_item->NetAmount
-            currency_code         = <ls_header>-CurrencyCode
-            posting_date          = <ls_header>-PostingDate
-            document_type         = c_document_type
-            document_uuid         = lr_item->HeaderUUID
-            document_item_uuid    = lr_item->ItemUUID
-            created_by            = lv_user
-            created_at            = lv_timestamp
-            local_last_changed_by = lv_user
-            local_last_changed_at = lv_timestamp
-            last_changed_at       = lv_timestamp
-          ) TO lt_movements.
-        CATCH cx_uuid_error INTO DATA(lx_uuid).
-          " A posted goods receipt without its stock movement would break the stock:
-          " abort the save (the whole transaction is rolled back) instead of skipping the movement
-          RAISE SHORTDUMP lx_uuid.
-      ENDTRY.
+      APPEND VALUE #(
+        document_uuid      = lr_item->HeaderUUID
+        document_item_uuid = lr_item->ItemUUID
+        company_code       = <ls_header>-CompanyCode
+        warehouse_code     = <ls_header>-WarehouseCode
+        item_code          = lr_item->ItemCode
+        quantity           = lr_item->Quantity
+        unit_of_measure    = lr_item->UnitOfMeasure
+        amount             = lr_item->NetAmount
+        currency_code      = <ls_header>-CurrencyCode
+        posting_date       = <ls_header>-PostingDate
+      ) TO lt_movements.
     ENDLOOP.
 
-    IF lt_movements IS NOT INITIAL.
-      INSERT zmerp_stock_mov FROM TABLE @lt_movements.
-    ENDIF.
+    zcl_merp_stock_posting=>insert_movements( iv_document_type = c_document_type
+                                              it_movements     = lt_movements ).
   ENDMETHOD.
 
 ENDCLASS.
+
 

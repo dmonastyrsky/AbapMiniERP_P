@@ -185,6 +185,24 @@
     <T100>
      <SPRSL>E</SPRSL>
      <ARBGB>ZMC_MERP_MD</ARBGB>
+     <MSGNR>107</MSGNR>
+     <TEXT>Currency &amp;1 does not exist.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_MD</ARBGB>
+     <MSGNR>108</MSGNR>
+     <TEXT>Country &amp;1 does not exist.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_MD</ARBGB>
+     <MSGNR>109</MSGNR>
+     <TEXT>Unit of Measure &amp;1 does not exist.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_MD</ARBGB>
      <MSGNR>150</MSGNR>
      <TEXT>Business Partner &amp;1 is used in &amp;2.</TEXT>
     </T100>

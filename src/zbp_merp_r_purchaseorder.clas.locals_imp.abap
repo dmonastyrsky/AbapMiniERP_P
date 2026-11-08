@@ -11,6 +11,7 @@ CLASS lhc_zmerp_r_purchaseorder DEFINITION INHERITING FROM cl_abap_behavior_hand
       c_val_post_date      TYPE string VALUE 'VALIDATE_POST_DATE',
       c_val_deliv_date     TYPE string VALUE 'VALIDATE_DELIV_DATE'.
 
+    " --- Access and state ---
     "! Evaluates global authorizations for CUD operations.
     METHODS get_global_authorizations FOR GLOBAL AUTHORIZATION
       IMPORTING
@@ -28,6 +29,7 @@ CLASS lhc_zmerp_r_purchaseorder DEFINITION INHERITING FROM cl_abap_behavior_hand
       IMPORTING
         keys FOR DELETE PurchaseOrder.
 
+    " --- Actions ---
     "! Releases the Purchase Order.
     METHODS releaseDocument FOR MODIFY
       IMPORTING
@@ -65,6 +67,7 @@ CLASS lhc_zmerp_r_purchaseorder DEFINITION INHERITING FROM cl_abap_behavior_hand
         keys   FOR ACTION PurchaseOrder~setReceiptStatus
       RESULT   result.
 
+    " --- Determinations on modify ---
     "! Sets default header values on document creation.
     METHODS setHeaderDefaults FOR DETERMINE ON MODIFY
       IMPORTING
@@ -85,10 +88,22 @@ CLASS lhc_zmerp_r_purchaseorder DEFINITION INHERITING FROM cl_abap_behavior_hand
       IMPORTING
         keys FOR PurchaseOrder~syncItemCurrency.
 
+    " --- Determinations on save ---
     "! Assigns the document number from the number range on first save.
     METHODS assignDocumentNumber FOR DETERMINE ON SAVE
       IMPORTING
         keys FOR PurchaseOrder~assignDocumentNumber.
+
+    " --- Validations ---
+    "! Validates mandatory header fields before saving.
+    METHODS validateHeaderFields FOR VALIDATE ON SAVE
+      IMPORTING
+        keys FOR PurchaseOrder~validateHeaderFields.
+
+    "! Validates document date and delivery date consistency.
+    METHODS validateDates FOR VALIDATE ON SAVE
+      IMPORTING
+        keys FOR PurchaseOrder~validateDates.
 
     "! A document is not saved without a number: runs after assignDocumentNumber
     "! (save determinations come before save validations) and fails the instance if no number was assigned.
@@ -96,30 +111,22 @@ CLASS lhc_zmerp_r_purchaseorder DEFINITION INHERITING FROM cl_abap_behavior_hand
       IMPORTING
         keys FOR PurchaseOrder~validateDocumentNumber.
 
-    "! Validates document date and delivery date consistency.
-    METHODS validateDates FOR VALIDATE ON SAVE
+    " --- Clearing of validation messages ---
+    "! Clears validation messages for organizational header fields that have been filled in.
+    METHODS clearMessagesForHeaderFields FOR DETERMINE ON MODIFY
       IMPORTING
-        keys FOR PurchaseOrder~validateDates.
-
-    "! Validates mandatory header fields before saving.
-    METHODS validateHeaderFields FOR VALIDATE ON SAVE
-      IMPORTING
-        keys FOR PurchaseOrder~validateHeaderFields.
+        keys FOR PurchaseOrder~clearMessagesForHeaderFields.
 
     "! Clears date validation messages for fields that have been fixed.
     METHODS clearMessagesForDates FOR DETERMINE ON MODIFY
       IMPORTING
         keys FOR PurchaseOrder~clearMessagesForDates.
 
-    "! Clears validation messages for organizational header fields that have been filled in.
-    METHODS clearMessagesForHeaderFields FOR DETERMINE ON MODIFY
-      IMPORTING
-        keys FOR PurchaseOrder~clearMessagesForHeaderFields.
-
 ENDCLASS.
 
 CLASS lhc_zmerp_r_purchaseorder IMPLEMENTATION.
 
+  " --- Access and state ---
   METHOD get_global_authorizations.
     IF requested_authorizations-%create = if_abap_behv=>mk-on.
       result-%create = if_abap_behv=>auth-allowed.
@@ -199,27 +206,16 @@ CLASS lhc_zmerp_r_purchaseorder IMPLEMENTATION.
     ).
   ENDMETHOD.
 
-  METHOD validateHeaderFields.
-    DATA lv_has_error TYPE abap_bool.
-    DATA lo_message   TYPE REF TO if_abap_behv_message.
+  METHOD precheck_delete.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
 
-    " Clear the messages of the previous validation run
-    reported-purchaseorder = VALUE #(
-      BASE reported-purchaseorder
-      FOR key IN keys
-      ( %tky        = key-%tky
-        %state_area = c_val_company )
-      ( %tky        = key-%tky
-        %state_area = c_val_partner )
-      ( %tky        = key-%tky
-        %state_area = c_val_warehouse )
-      ( %tky        = key-%tky
-        %state_area = c_val_currency )
-    ).
+    DATA lv_failed_added TYPE abap_bool.
 
     READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
       ENTITY PurchaseOrder
-      FIELDS ( CompanyCode BusinessPartnerCode WarehouseCode CurrencyCode )
+      FIELDS ( Status DocumentNumber )
       WITH CORRESPONDING #( keys )
       RESULT DATA(lt_headers).
 
@@ -227,302 +223,57 @@ CLASS lhc_zmerp_r_purchaseorder IMPLEMENTATION.
       RETURN.
     ENDIF.
 
-    " Referenced master data in one selection each
-    DATA(lt_companies) = NEW zcl_merp_md_comp_code_sel( )->zif_merp_md_comp_code_sel~read_companies(
-      VALUE #( FOR header IN lt_headers ( CompanyCode = header-CompanyCode ) )
-    ).
+    " Usages of all documents in one selection (the selector skips initial keys)
+    DATA(lt_usages) = NEW zcl_merp_doc_po_sel( )->zif_merp_doc_po_sel~read_usages(
+      VALUE #( FOR hdr IN lt_headers ( DocumentUUID = hdr-DocumentUUID ) ) ).
 
-    DATA(lt_partners) = NEW zcl_merp_md_bus_partner_sel( )->zif_merp_md_bus_partner_sel~read_partners(
-      VALUE #( FOR header IN lt_headers ( PartnerCode = header-BusinessPartnerCode ) )
-    ).
+    LOOP AT lt_headers REFERENCE INTO DATA(lr_hdr).
+      lv_failed_added = abap_false.
 
-    DATA(lt_warehouses) = NEW zcl_merp_md_warehouse_sel( )->zif_merp_md_warehouse_sel~read_warehouses(
-      VALUE #( FOR header IN lt_headers ( WarehouseCode = header-WarehouseCode ) )
-    ).
+      " Delete only in status New or Cancelled
+      IF zcl_merp_doc_po_lifecycle=>can_delete( lr_hdr->Status ) = abap_false.
+        APPEND VALUE #(
+          %tky        = lr_hdr->%tky
+          %fail-cause = if_abap_behv=>cause-conflict
+        ) TO failed-purchaseorder.
 
-    " Per field: the first rule that fails gives the message (none if the field is valid)
-    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
-      lv_has_error = abap_false.
-
-      " 1. Company: mandatory, exists
-      lo_message = COND #(
-        WHEN lr_header->CompanyCode IS INITIAL
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_company
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN NOT line_exists( lt_companies[ CompanyCode = lr_header->CompanyCode ] )
-          THEN NEW zcx_merp_md( textid   = zcx_merp_md=>company_code_not_found
-                                attr1    = CONV string( lr_header->CompanyCode )
-                                severity = if_abap_behv_message=>severity-error ) ).
-
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky                 = lr_header->%tky
-                        %state_area          = c_val_company
-                        %msg                 = lo_message
-                        %element-CompanyCode = if_abap_behv=>mk-on ) TO reported-purchaseorder.
+        APPEND VALUE #(
+          %tky            = lr_hdr->%tky
+          %element-Status = if_abap_behv=>mk-on
+          %msg            = NEW zcx_merp_pur(
+                               textid   = zcx_merp_pur=>delete_not_allowed
+                               attr1    = CONV #( lr_hdr->DocumentNumber )
+                               severity = if_abap_behv_message=>severity-error )
+        ) TO reported-purchaseorder.
+        CONTINUE.
       ENDIF.
 
-      " 2. Partner: mandatory, exists, is a supplier
-      lo_message = COND #(
-        WHEN lr_header->BusinessPartnerCode IS INITIAL
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_business_partner
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN NOT line_exists( lt_partners[ PartnerCode = lr_header->BusinessPartnerCode ] )
-          THEN NEW zcx_merp_md( textid   = zcx_merp_md=>business_partner_not_found
-                                attr1    = CONV string( lr_header->BusinessPartnerCode )
-                                severity = if_abap_behv_message=>severity-error )
-        WHEN zcl_merp_doc_validator=>is_pur_partner_supplier(
-               lt_partners[ PartnerCode = lr_header->BusinessPartnerCode ]-IsSupplier ) = abap_false
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>bp_is_not_supplier
-                                 attr1    = CONV string( lr_header->BusinessPartnerCode )
-                                 severity = if_abap_behv_message=>severity-error ) ).
+      " Usage check: one message per using entity (sorted table: WHERE uses the table key)
+      LOOP AT lt_usages REFERENCE INTO DATA(lr_usage) WHERE DocumentUUID = lr_hdr->DocumentUUID.
 
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky                         = lr_header->%tky
-                        %state_area                  = c_val_partner
-                        %msg                         = lo_message
-                        %element-BusinessPartnerCode = if_abap_behv=>mk-on ) TO reported-purchaseorder.
-      ENDIF.
-
-      " 3. Warehouse: mandatory, exists, belongs to the company
-      lo_message = COND #(
-        WHEN lr_header->WarehouseCode IS INITIAL
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_warehouse
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN NOT line_exists( lt_warehouses[ WarehouseCode = lr_header->WarehouseCode ] )
-          THEN NEW zcx_merp_md( textid   = zcx_merp_md=>warehouse_not_found
-                                attr1    = CONV string( lr_header->WarehouseCode )
-                                severity = if_abap_behv_message=>severity-error )
-        WHEN lr_header->CompanyCode IS NOT INITIAL
-         AND lt_warehouses[ WarehouseCode = lr_header->WarehouseCode ]-CompanyCode <> lr_header->CompanyCode
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>warehouse_company_mismatch
-                                 attr1    = CONV string( lr_header->WarehouseCode )
-                                 attr2    = CONV string( lr_header->CompanyCode )
-                                 severity = if_abap_behv_message=>severity-error ) ).
-
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky                   = lr_header->%tky
-                        %state_area            = c_val_warehouse
-                        %msg                   = lo_message
-                        %element-WarehouseCode = if_abap_behv=>mk-on ) TO reported-purchaseorder.
-      ENDIF.
-
-      " 4. Currency: mandatory, equals the company currency
-      "    (only the company currency is allowed until currency conversion exists, D1)
-      lo_message = COND #(
-        WHEN lr_header->CurrencyCode IS INITIAL
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_currency
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN line_exists( lt_companies[ CompanyCode = lr_header->CompanyCode ] )
-         AND NOT line_exists( lt_companies[ CompanyCode  = lr_header->CompanyCode
-                                            CurrencyCode = lr_header->CurrencyCode ] )
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>currency_not_company
-                                 attr1    = CONV string( lr_header->CurrencyCode )
-                                 attr2    = CONV string( lt_companies[ CompanyCode = lr_header->CompanyCode ]-CurrencyCode )
-                                 severity = if_abap_behv_message=>severity-error ) ).
-
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky                  = lr_header->%tky
-                        %state_area           = c_val_currency
-                        %msg                  = lo_message
-                        %element-CurrencyCode = if_abap_behv=>mk-on ) TO reported-purchaseorder.
-      ENDIF.
-
-      " Any error fails the instance
-      IF lv_has_error = abap_true.
-        APPEND VALUE #( %tky        = lr_header->%tky
-                        %fail-cause = if_abap_behv=>cause-unspecific ) TO failed-purchaseorder.
-      ENDIF.
-    ENDLOOP.
-  ENDMETHOD.
-
-  METHOD validateDates.
-    DATA lv_has_error TYPE abap_bool.
-    DATA lo_message   TYPE REF TO if_abap_behv_message.
-
-    " Clear the messages of the previous validation run
-    reported-purchaseorder = VALUE #(
-      BASE reported-purchaseorder
-      FOR key IN keys
-      ( %tky        = key-%tky
-        %state_area = c_val_doc_date )
-      ( %tky        = key-%tky
-        %state_area = c_val_post_date )
-      ( %tky        = key-%tky
-        %state_area = c_val_deliv_date )
-    ).
-
-    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
-      ENTITY PurchaseOrder
-      FIELDS ( DocumentDate PostingDate DeliveryDate Status )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_headers).
-
-    IF lt_headers IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    DATA(lv_today) = cl_abap_context_info=>get_system_date( ).
-
-    " Per field: the first rule that fails gives the message (none if the field is valid)
-    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
-      lv_has_error = abap_false.
-
-      " 1. Document date: mandatory, not in the future
-      lo_message = COND #(
-        WHEN lr_header->DocumentDate IS INITIAL
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>enter_document_date
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN zcl_merp_doc_validator=>is_document_date_valid( iv_doc_date = lr_header->DocumentDate
-                                                             iv_today    = lv_today ) = abap_false
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>document_date_future_invalid
-                                 severity = if_abap_behv_message=>severity-error ) ).
-
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky                  = lr_header->%tky
-                        %state_area           = c_val_doc_date
-                        %msg                  = lo_message
-                        %element-DocumentDate = if_abap_behv=>mk-on ) TO reported-purchaseorder.
-      ENDIF.
-
-      " 2. Posting date: mandatory, not in the future, not before the document date
-      lo_message = COND #(
-        WHEN lr_header->PostingDate IS INITIAL
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>enter_posting_date
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN zcl_merp_doc_validator=>is_posting_date_not_future( iv_post_date = lr_header->PostingDate
-                                                                 iv_today     = lv_today ) = abap_false
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>posting_date_future_invalid
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN lr_header->DocumentDate IS NOT INITIAL
-         AND zcl_merp_doc_validator=>is_posting_date_valid( iv_doc_date  = lr_header->DocumentDate
-                                                            iv_post_date = lr_header->PostingDate ) = abap_false
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>posting_date_sequence_invalid
-                                 severity = if_abap_behv_message=>severity-error ) ).
-
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky                 = lr_header->%tky
-                        %state_area          = c_val_post_date
-                        %msg                 = lo_message
-                        %element-PostingDate = if_abap_behv=>mk-on ) TO reported-purchaseorder.
-      ENDIF.
-
-      " 3. Delivery date (optional): not in the past while New, not before the document date
-      lo_message = COND #(
-        WHEN lr_header->DeliveryDate IS NOT INITIAL
-         AND zcl_merp_doc_po_lifecycle=>is_delivery_date_actual( iv_status        = lr_header->Status
-                                                                 iv_delivery_date = lr_header->DeliveryDate
-                                                                 iv_today         = lv_today ) = abap_false
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>delivery_date_past_invalid
-                                 severity = if_abap_behv_message=>severity-error )
-        WHEN lr_header->DeliveryDate IS NOT INITIAL AND lr_header->DocumentDate IS NOT INITIAL
-         AND zcl_merp_doc_validator=>is_delivery_date_valid( iv_doc_date   = lr_header->DocumentDate
-                                                             iv_deliv_date = lr_header->DeliveryDate ) = abap_false
-          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>delivery_date_before_doc_date
-                                 severity = if_abap_behv_message=>severity-error ) ).
-
-      IF lo_message IS BOUND.
-        lv_has_error = abap_true.
-        APPEND VALUE #( %tky                  = lr_header->%tky
-                        %state_area           = c_val_deliv_date
-                        %msg                  = lo_message
-                        %element-DeliveryDate = if_abap_behv=>mk-on ) TO reported-purchaseorder.
-      ENDIF.
-
-      " Any error fails the instance
-      IF lv_has_error = abap_true.
-        APPEND VALUE #( %tky        = lr_header->%tky
-                        %fail-cause = if_abap_behv=>cause-unspecific ) TO failed-purchaseorder.
-      ENDIF.
-    ENDLOOP.
-  ENDMETHOD.
-
-  METHOD clearMessagesForHeaderFields.
-    IF keys IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
-      ENTITY PurchaseOrder
-      FIELDS ( CompanyCode BusinessPartnerCode WarehouseCode CurrencyCode )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_headers).
-
-    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
-      IF lr_header->CompanyCode IS NOT INITIAL.
-        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_company ) TO reported-purchaseorder.
-      ENDIF.
-
-      IF lr_header->BusinessPartnerCode IS NOT INITIAL.
-        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_partner ) TO reported-purchaseorder.
-      ENDIF.
-
-      IF lr_header->WarehouseCode IS NOT INITIAL.
-        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_warehouse ) TO reported-purchaseorder.
-      ENDIF.
-
-      IF lr_header->CurrencyCode IS NOT INITIAL.
-        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_currency ) TO reported-purchaseorder.
-      ENDIF.
-    ENDLOOP.
-  ENDMETHOD.
-
-  METHOD clearMessagesForDates.
-    IF keys IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    " A message is cleared only when the date passes the checks of validateDates
-    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
-      ENTITY PurchaseOrder
-      FIELDS ( DocumentDate PostingDate DeliveryDate Status )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_headers).
-
-    DATA(lv_today) = cl_abap_context_info=>get_system_date( ).
-
-    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
-
-      " 1. Document date
-      IF lr_header->DocumentDate IS NOT INITIAL
-         AND zcl_merp_doc_validator=>is_document_date_valid( iv_doc_date = lr_header->DocumentDate
-                                                             iv_today    = lv_today ) = abap_true.
-        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_doc_date ) TO reported-purchaseorder.
-      ENDIF.
-
-      " 2. Posting date
-      IF lr_header->PostingDate IS NOT INITIAL AND lr_header->DocumentDate IS NOT INITIAL
-         AND zcl_merp_doc_validator=>is_posting_date_not_future( iv_post_date = lr_header->PostingDate
-                                                                 iv_today     = lv_today ) = abap_true
-         AND zcl_merp_doc_validator=>is_posting_date_valid( iv_doc_date  = lr_header->DocumentDate
-                                                            iv_post_date = lr_header->PostingDate ) = abap_true.
-        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_post_date ) TO reported-purchaseorder.
-      ENDIF.
-
-      " 3. Delivery date
-      IF lr_header->DeliveryDate IS NOT INITIAL AND lr_header->DocumentDate IS NOT INITIAL.
-        DATA(lv_del_valid) = zcl_merp_doc_validator=>is_delivery_date_valid( iv_doc_date   = lr_header->DocumentDate
-                                                                             iv_deliv_date = lr_header->DeliveryDate ).
-
-        IF lv_del_valid = abap_true.
-          lv_del_valid = zcl_merp_doc_po_lifecycle=>is_delivery_date_actual( iv_status        = lr_header->Status
-                                                                         iv_delivery_date = lr_header->DeliveryDate
-                                                                         iv_today         = lv_today ).
+        IF lv_failed_added = abap_false.
+          APPEND VALUE #(
+            %tky        = lr_hdr->%tky
+            %fail-cause = if_abap_behv=>cause-dependency
+          ) TO failed-purchaseorder.
+          lv_failed_added = abap_true.
         ENDIF.
 
-        IF lv_del_valid = abap_true.
-          APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_deliv_date ) TO reported-purchaseorder.
-        ENDIF.
-      ENDIF.
-
+        " Document number is shown to the user instead of the technical UUID
+        APPEND VALUE #(
+          %tky            = lr_hdr->%tky
+          %element-Status = if_abap_behv=>mk-on
+          %msg            = NEW zcx_merp_pur(
+                               textid   = zcx_merp_pur=>purchase_order_in_use
+                               attr1    = CONV #( lr_hdr->DocumentNumber )
+                               attr2    = CONV #( lr_usage->UsedInEntity )
+                               severity = if_abap_behv_message=>severity-error )
+        ) TO reported-purchaseorder.
+      ENDLOOP.
     ENDLOOP.
   ENDMETHOD.
 
+  " --- Actions ---
   METHOD releaseDocument.
     DATA lt_update  TYPE TABLE FOR UPDATE zmerp_r_purchaseorder.
     DATA lo_message TYPE REF TO zcx_merp_pur.
@@ -870,6 +621,7 @@ CLASS lhc_zmerp_r_purchaseorder IMPLEMENTATION.
     result = VALUE #( FOR header IN lt_result ( %tky = header-%tky %param = header ) ).
   ENDMETHOD.
 
+  " --- Determinations on modify ---
   METHOD setHeaderDefaults.
     DATA lt_header_update TYPE TABLE FOR UPDATE zmerp_r_purchaseorder.
 
@@ -1053,6 +805,7 @@ CLASS lhc_zmerp_r_purchaseorder IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
+  " --- Determinations on save ---
   METHOD assignDocumentNumber.
     DATA lt_company_headers TYPE TABLE FOR READ RESULT zmerp_r_purchaseorder.
     DATA lt_codes           TYPE string_table.
@@ -1102,6 +855,250 @@ CLASS lhc_zmerp_r_purchaseorder IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
+  " --- Validations ---
+  METHOD validateHeaderFields.
+    DATA lv_has_error TYPE abap_bool.
+    DATA lo_message   TYPE REF TO if_abap_behv_message.
+
+    " Clear the messages of the previous validation run
+    reported-purchaseorder = VALUE #(
+      BASE reported-purchaseorder
+      FOR key IN keys
+      ( %tky        = key-%tky
+        %state_area = c_val_company )
+      ( %tky        = key-%tky
+        %state_area = c_val_partner )
+      ( %tky        = key-%tky
+        %state_area = c_val_warehouse )
+      ( %tky        = key-%tky
+        %state_area = c_val_currency )
+    ).
+
+    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
+      ENTITY PurchaseOrder
+      FIELDS ( CompanyCode BusinessPartnerCode WarehouseCode CurrencyCode )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_headers).
+
+    IF lt_headers IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    " Referenced master data in one selection each
+    DATA(lt_companies) = NEW zcl_merp_md_comp_code_sel( )->zif_merp_md_comp_code_sel~read_companies(
+      VALUE #( FOR header IN lt_headers ( CompanyCode = header-CompanyCode ) )
+    ).
+
+    DATA(lt_partners) = NEW zcl_merp_md_bus_partner_sel( )->zif_merp_md_bus_partner_sel~read_partners(
+      VALUE #( FOR header IN lt_headers ( PartnerCode = header-BusinessPartnerCode ) )
+    ).
+
+    DATA(lt_warehouses) = NEW zcl_merp_md_warehouse_sel( )->zif_merp_md_warehouse_sel~read_warehouses(
+      VALUE #( FOR header IN lt_headers ( WarehouseCode = header-WarehouseCode ) )
+    ).
+
+    " Per field: the first rule that fails gives the message (none if the field is valid)
+    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
+      lv_has_error = abap_false.
+
+      " 1. Company: mandatory, exists
+      lo_message = COND #(
+        WHEN lr_header->CompanyCode IS INITIAL
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_company
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN NOT line_exists( lt_companies[ CompanyCode = lr_header->CompanyCode ] )
+          THEN NEW zcx_merp_md( textid   = zcx_merp_md=>company_code_not_found
+                                attr1    = CONV string( lr_header->CompanyCode )
+                                severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky                 = lr_header->%tky
+                        %state_area          = c_val_company
+                        %msg                 = lo_message
+                        %element-CompanyCode = if_abap_behv=>mk-on ) TO reported-purchaseorder.
+      ENDIF.
+
+      " 2. Partner: mandatory, exists, is a supplier
+      lo_message = COND #(
+        WHEN lr_header->BusinessPartnerCode IS INITIAL
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_business_partner
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN NOT line_exists( lt_partners[ PartnerCode = lr_header->BusinessPartnerCode ] )
+          THEN NEW zcx_merp_md( textid   = zcx_merp_md=>business_partner_not_found
+                                attr1    = CONV string( lr_header->BusinessPartnerCode )
+                                severity = if_abap_behv_message=>severity-error )
+        WHEN zcl_merp_doc_validator=>is_pur_partner_supplier(
+               lt_partners[ PartnerCode = lr_header->BusinessPartnerCode ]-IsSupplier ) = abap_false
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>bp_is_not_supplier
+                                 attr1    = CONV string( lr_header->BusinessPartnerCode )
+                                 severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky                         = lr_header->%tky
+                        %state_area                  = c_val_partner
+                        %msg                         = lo_message
+                        %element-BusinessPartnerCode = if_abap_behv=>mk-on ) TO reported-purchaseorder.
+      ENDIF.
+
+      " 3. Warehouse: mandatory, exists, belongs to the company
+      lo_message = COND #(
+        WHEN lr_header->WarehouseCode IS INITIAL
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_warehouse
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN NOT line_exists( lt_warehouses[ WarehouseCode = lr_header->WarehouseCode ] )
+          THEN NEW zcx_merp_md( textid   = zcx_merp_md=>warehouse_not_found
+                                attr1    = CONV string( lr_header->WarehouseCode )
+                                severity = if_abap_behv_message=>severity-error )
+        WHEN lr_header->CompanyCode IS NOT INITIAL
+         AND lt_warehouses[ WarehouseCode = lr_header->WarehouseCode ]-CompanyCode <> lr_header->CompanyCode
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>warehouse_company_mismatch
+                                 attr1    = CONV string( lr_header->WarehouseCode )
+                                 attr2    = CONV string( lr_header->CompanyCode )
+                                 severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky                   = lr_header->%tky
+                        %state_area            = c_val_warehouse
+                        %msg                   = lo_message
+                        %element-WarehouseCode = if_abap_behv=>mk-on ) TO reported-purchaseorder.
+      ENDIF.
+
+      " 4. Currency: mandatory, equals the company currency
+      "    (only the company currency is allowed until currency conversion exists, D1)
+      lo_message = COND #(
+        WHEN lr_header->CurrencyCode IS INITIAL
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>select_currency
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN line_exists( lt_companies[ CompanyCode = lr_header->CompanyCode ] )
+         AND NOT line_exists( lt_companies[ CompanyCode  = lr_header->CompanyCode
+                                            CurrencyCode = lr_header->CurrencyCode ] )
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>currency_not_company
+                                 attr1    = CONV string( lr_header->CurrencyCode )
+                                 attr2    = CONV string( lt_companies[ CompanyCode = lr_header->CompanyCode ]-CurrencyCode )
+                                 severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky                  = lr_header->%tky
+                        %state_area           = c_val_currency
+                        %msg                  = lo_message
+                        %element-CurrencyCode = if_abap_behv=>mk-on ) TO reported-purchaseorder.
+      ENDIF.
+
+      " Any error fails the instance
+      IF lv_has_error = abap_true.
+        APPEND VALUE #( %tky        = lr_header->%tky
+                        %fail-cause = if_abap_behv=>cause-unspecific ) TO failed-purchaseorder.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD validateDates.
+    DATA lv_has_error TYPE abap_bool.
+    DATA lo_message   TYPE REF TO if_abap_behv_message.
+
+    " Clear the messages of the previous validation run
+    reported-purchaseorder = VALUE #(
+      BASE reported-purchaseorder
+      FOR key IN keys
+      ( %tky        = key-%tky
+        %state_area = c_val_doc_date )
+      ( %tky        = key-%tky
+        %state_area = c_val_post_date )
+      ( %tky        = key-%tky
+        %state_area = c_val_deliv_date )
+    ).
+
+    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
+      ENTITY PurchaseOrder
+      FIELDS ( DocumentDate PostingDate DeliveryDate Status )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_headers).
+
+    IF lt_headers IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    DATA(lv_today) = cl_abap_context_info=>get_system_date( ).
+
+    " Per field: the first rule that fails gives the message (none if the field is valid)
+    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
+      lv_has_error = abap_false.
+
+      " 1. Document date: mandatory, not in the future
+      lo_message = COND #(
+        WHEN lr_header->DocumentDate IS INITIAL
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>enter_document_date
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN zcl_merp_doc_validator=>is_document_date_valid( iv_doc_date = lr_header->DocumentDate
+                                                             iv_today    = lv_today ) = abap_false
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>document_date_future_invalid
+                                 severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky                  = lr_header->%tky
+                        %state_area           = c_val_doc_date
+                        %msg                  = lo_message
+                        %element-DocumentDate = if_abap_behv=>mk-on ) TO reported-purchaseorder.
+      ENDIF.
+
+      " 2. Posting date: mandatory, not in the future, not before the document date
+      lo_message = COND #(
+        WHEN lr_header->PostingDate IS INITIAL
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>enter_posting_date
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN zcl_merp_doc_validator=>is_posting_date_not_future( iv_post_date = lr_header->PostingDate
+                                                                 iv_today     = lv_today ) = abap_false
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>posting_date_future_invalid
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN lr_header->DocumentDate IS NOT INITIAL
+         AND zcl_merp_doc_validator=>is_posting_date_valid( iv_doc_date  = lr_header->DocumentDate
+                                                            iv_post_date = lr_header->PostingDate ) = abap_false
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>posting_date_sequence_invalid
+                                 severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky                 = lr_header->%tky
+                        %state_area          = c_val_post_date
+                        %msg                 = lo_message
+                        %element-PostingDate = if_abap_behv=>mk-on ) TO reported-purchaseorder.
+      ENDIF.
+
+      " 3. Delivery date (optional): not in the past while New, not before the document date
+      lo_message = COND #(
+        WHEN lr_header->DeliveryDate IS NOT INITIAL
+         AND zcl_merp_doc_po_lifecycle=>is_delivery_date_actual( iv_status        = lr_header->Status
+                                                                 iv_delivery_date = lr_header->DeliveryDate
+                                                                 iv_today         = lv_today ) = abap_false
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>delivery_date_past_invalid
+                                 severity = if_abap_behv_message=>severity-error )
+        WHEN lr_header->DeliveryDate IS NOT INITIAL AND lr_header->DocumentDate IS NOT INITIAL
+         AND zcl_merp_doc_validator=>is_delivery_date_valid( iv_doc_date   = lr_header->DocumentDate
+                                                             iv_deliv_date = lr_header->DeliveryDate ) = abap_false
+          THEN NEW zcx_merp_pur( textid   = zcx_merp_pur=>delivery_date_before_doc_date
+                                 severity = if_abap_behv_message=>severity-error ) ).
+
+      IF lo_message IS BOUND.
+        lv_has_error = abap_true.
+        APPEND VALUE #( %tky                  = lr_header->%tky
+                        %state_area           = c_val_deliv_date
+                        %msg                  = lo_message
+                        %element-DeliveryDate = if_abap_behv=>mk-on ) TO reported-purchaseorder.
+      ENDIF.
+
+      " Any error fails the instance
+      IF lv_has_error = abap_true.
+        APPEND VALUE #( %tky        = lr_header->%tky
+                        %fail-cause = if_abap_behv=>cause-unspecific ) TO failed-purchaseorder.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
   METHOD validateDocumentNumber.
     READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
       ENTITY PurchaseOrder
@@ -1128,70 +1125,85 @@ CLASS lhc_zmerp_r_purchaseorder IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
-  METHOD precheck_delete.
+  " --- Clearing of validation messages ---
+  METHOD clearMessagesForHeaderFields.
     IF keys IS INITIAL.
       RETURN.
     ENDIF.
 
-    DATA lv_failed_added TYPE abap_bool.
-
     READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
       ENTITY PurchaseOrder
-      FIELDS ( Status DocumentNumber )
+      FIELDS ( CompanyCode BusinessPartnerCode WarehouseCode CurrencyCode )
       WITH CORRESPONDING #( keys )
       RESULT DATA(lt_headers).
 
-    IF lt_headers IS INITIAL.
+    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
+      IF lr_header->CompanyCode IS NOT INITIAL.
+        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_company ) TO reported-purchaseorder.
+      ENDIF.
+
+      IF lr_header->BusinessPartnerCode IS NOT INITIAL.
+        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_partner ) TO reported-purchaseorder.
+      ENDIF.
+
+      IF lr_header->WarehouseCode IS NOT INITIAL.
+        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_warehouse ) TO reported-purchaseorder.
+      ENDIF.
+
+      IF lr_header->CurrencyCode IS NOT INITIAL.
+        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_currency ) TO reported-purchaseorder.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD clearMessagesForDates.
+    IF keys IS INITIAL.
       RETURN.
     ENDIF.
 
-    " Usages of all documents in one selection (the selector skips initial keys)
-    DATA(lt_usages) = NEW zcl_merp_doc_po_sel( )->zif_merp_doc_po_sel~read_usages(
-      VALUE #( FOR hdr IN lt_headers ( DocumentUUID = hdr-DocumentUUID ) ) ).
+    " A message is cleared only when the date passes the checks of validateDates
+    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
+      ENTITY PurchaseOrder
+      FIELDS ( DocumentDate PostingDate DeliveryDate Status )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_headers).
 
-    LOOP AT lt_headers REFERENCE INTO DATA(lr_hdr).
-      lv_failed_added = abap_false.
+    DATA(lv_today) = cl_abap_context_info=>get_system_date( ).
 
-      " Delete only in status New or Cancelled
-      IF zcl_merp_doc_po_lifecycle=>can_delete( lr_hdr->Status ) = abap_false.
-        APPEND VALUE #(
-          %tky        = lr_hdr->%tky
-          %fail-cause = if_abap_behv=>cause-conflict
-        ) TO failed-purchaseorder.
+    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
 
-        APPEND VALUE #(
-          %tky            = lr_hdr->%tky
-          %element-Status = if_abap_behv=>mk-on
-          %msg            = NEW zcx_merp_pur(
-                               textid   = zcx_merp_pur=>delete_not_allowed
-                               attr1    = CONV #( lr_hdr->DocumentNumber )
-                               severity = if_abap_behv_message=>severity-error )
-        ) TO reported-purchaseorder.
-        CONTINUE.
+      " 1. Document date
+      IF lr_header->DocumentDate IS NOT INITIAL
+         AND zcl_merp_doc_validator=>is_document_date_valid( iv_doc_date = lr_header->DocumentDate
+                                                             iv_today    = lv_today ) = abap_true.
+        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_doc_date ) TO reported-purchaseorder.
       ENDIF.
 
-      " Usage check: one message per using entity (sorted table: WHERE uses the table key)
-      LOOP AT lt_usages REFERENCE INTO DATA(lr_usage) WHERE DocumentUUID = lr_hdr->DocumentUUID.
+      " 2. Posting date
+      IF lr_header->PostingDate IS NOT INITIAL AND lr_header->DocumentDate IS NOT INITIAL
+         AND zcl_merp_doc_validator=>is_posting_date_not_future( iv_post_date = lr_header->PostingDate
+                                                                 iv_today     = lv_today ) = abap_true
+         AND zcl_merp_doc_validator=>is_posting_date_valid( iv_doc_date  = lr_header->DocumentDate
+                                                            iv_post_date = lr_header->PostingDate ) = abap_true.
+        APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_post_date ) TO reported-purchaseorder.
+      ENDIF.
 
-        IF lv_failed_added = abap_false.
-          APPEND VALUE #(
-            %tky        = lr_hdr->%tky
-            %fail-cause = if_abap_behv=>cause-dependency
-          ) TO failed-purchaseorder.
-          lv_failed_added = abap_true.
+      " 3. Delivery date
+      IF lr_header->DeliveryDate IS NOT INITIAL AND lr_header->DocumentDate IS NOT INITIAL.
+        DATA(lv_del_valid) = zcl_merp_doc_validator=>is_delivery_date_valid( iv_doc_date   = lr_header->DocumentDate
+                                                                             iv_deliv_date = lr_header->DeliveryDate ).
+
+        IF lv_del_valid = abap_true.
+          lv_del_valid = zcl_merp_doc_po_lifecycle=>is_delivery_date_actual( iv_status        = lr_header->Status
+                                                                         iv_delivery_date = lr_header->DeliveryDate
+                                                                         iv_today         = lv_today ).
         ENDIF.
 
-        " Document number is shown to the user instead of the technical UUID
-        APPEND VALUE #(
-          %tky            = lr_hdr->%tky
-          %element-Status = if_abap_behv=>mk-on
-          %msg            = NEW zcx_merp_pur(
-                               textid   = zcx_merp_pur=>purchase_order_in_use
-                               attr1    = CONV #( lr_hdr->DocumentNumber )
-                               attr2    = CONV #( lr_usage->UsedInEntity )
-                               severity = if_abap_behv_message=>severity-error )
-        ) TO reported-purchaseorder.
-      ENDLOOP.
+        IF lv_del_valid = abap_true.
+          APPEND VALUE #( %tky = lr_header->%tky %state_area = c_val_deliv_date ) TO reported-purchaseorder.
+        ENDIF.
+      ENDIF.
+
     ENDLOOP.
   ENDMETHOD.
 
@@ -1216,10 +1228,17 @@ CLASS lhc_zmerp_r_purchaseorderitm DEFINITION INHERITING FROM cl_abap_behavior_h
     " and consumed (and cleared) by calcHeaderTotals within the same request
     CLASS-DATA gt_deleted_headers TYPE STANDARD TABLE OF ty_header_key WITH EMPTY KEY.
 
-    "! Recalculates total header net and gross amounts (via ZCL_MERP_DOC_CALC) when items are created, changed or deleted.
-    METHODS calcHeaderTotals FOR DETERMINE ON MODIFY
+    " --- Access and state ---
+    "! Remembers the parent documents of the items being deleted, so that calcHeaderTotals
+    "! can still recalculate their totals after the deletion.
+    METHODS precheck_delete FOR PRECHECK
+      keys FOR DELETE PurchaseOrderItem.
+
+    " --- Determinations on modify ---
+    "! Sets item defaults (ItemNo, Currency, UoM, VatCode) based on header and selected ItemCode.
+    METHODS setItemDefaults FOR DETERMINE ON MODIFY
       IMPORTING
-        keys FOR PurchaseOrderItem~calcHeaderTotals.
+        keys FOR PurchaseOrderItem~setItemDefaults.
 
     "! Recalculates net, VAT and gross amounts of the item when quantity or price changes (via ZCL_MERP_DOC_CALC).
     METHODS calcAmountsOnQtyPrice FOR DETERMINE ON MODIFY
@@ -1231,36 +1250,252 @@ CLASS lhc_zmerp_r_purchaseorderitm DEFINITION INHERITING FROM cl_abap_behavior_h
       IMPORTING
         keys FOR PurchaseOrderItem~calcAmountsOnVatCode.
 
-    "! Sets item defaults (ItemNo, Currency, UoM, VatCode) based on header and selected ItemCode.
-    METHODS setItemDefaults FOR DETERMINE ON MODIFY
+    "! Recalculates total header net and gross amounts (via ZCL_MERP_DOC_CALC) when items are created, changed or deleted.
+    METHODS calcHeaderTotals FOR DETERMINE ON MODIFY
       IMPORTING
-        keys FOR PurchaseOrderItem~setItemDefaults.
+        keys FOR PurchaseOrderItem~calcHeaderTotals.
 
+    " --- Validations ---
     "! Validates item fields before saving: mandatory values, existence of item and VAT code in master data,
     "! duplicate item codes, positive quantity and price.
     METHODS validateItemFields FOR VALIDATE ON SAVE
       IMPORTING
         keys FOR PurchaseOrderItem~validateItemFields.
 
-    "! Re-evaluates duplicate item code messages for ALL items of the document when an item code changes.
-    METHODS handleMessagesOnItemModify FOR DETERMINE ON MODIFY
-      IMPORTING
-        keys FOR PurchaseOrderItem~handleMessagesOnItemModify.
-
+    " --- Clearing of validation messages ---
     "! Clears validation messages of quantity, price, unit of measure and VAT code once the values are valid/filled.
     METHODS clearMessagesForItemFields FOR DETERMINE ON MODIFY
       IMPORTING
         keys FOR PurchaseOrderItem~clearMessagesForItemFields.
 
-    "! Remembers the parent documents of the items being deleted, so that calcHeaderTotals
-    "! can still recalculate their totals after the deletion.
-    METHODS precheck_delete FOR PRECHECK
-      keys FOR DELETE PurchaseOrderItem.
+    "! Re-evaluates duplicate item code messages for ALL items of the document when an item code changes.
+    METHODS handleMessagesOnItemModify FOR DETERMINE ON MODIFY
+      IMPORTING
+        keys FOR PurchaseOrderItem~handleMessagesOnItemModify.
 
 ENDCLASS.
 
 CLASS lhc_zmerp_r_purchaseorderitm IMPLEMENTATION.
 
+  " --- Access and state ---
+  METHOD precheck_delete.
+    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
+      ENTITY PurchaseOrderItem
+      FIELDS ( HeaderUUID )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_items).
+
+    " Parents of the deleted items, for calcHeaderTotals
+    gt_deleted_headers = VALUE #( BASE gt_deleted_headers
+      FOR item IN lt_items ( document_uuid = item-HeaderUUID
+                             is_draft      = item-%is_draft ) ).
+  ENDMETHOD.
+
+  " --- Determinations on modify ---
+  METHOD setItemDefaults.
+
+    " Items and their parent headers (document currency)
+    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
+      ENTITY PurchaseOrderItem
+        FIELDS ( HeaderUUID ItemNo ItemCode UnitOfMeasure VatCode CurrencyCode )
+        WITH CORRESPONDING #( keys )
+        RESULT DATA(lt_items)
+      ENTITY PurchaseOrderItem BY \_PurchaseOrder
+        FIELDS ( CurrencyCode )
+        WITH CORRESPONDING #( keys )
+        RESULT DATA(lt_headers).
+
+    IF lt_items IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    " All items of the affected documents: highest used item number per document
+    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
+      ENTITY PurchaseOrder BY \_Items
+      FIELDS ( HeaderUUID ItemNo )
+      WITH CORRESPONDING #( lt_headers )
+      RESULT DATA(lt_siblings).
+
+    " Delegate the defaulting to the shared item logic (same for all documents), only changed items are returned
+    DATA(lt_changed) = NEW zcl_merp_doc_item_logic( )->set_defaults(
+      it_items             = CORRESPONDING #( lt_items MAPPING IsDraft = %is_draft )
+      it_siblings          = CORRESPONDING #( lt_siblings MAPPING IsDraft = %is_draft )
+      it_header_currencies = CORRESPONDING #( lt_headers MAPPING HeaderUUID = DocumentUUID
+                                                                 IsDraft    = %is_draft ) ).
+
+    DATA lt_update TYPE TABLE FOR UPDATE zmerp_r_purchaseorder\\PurchaseOrderItem.
+
+    " Map defaults back to the instances (UUID + draft state) of the transactional buffer
+    LOOP AT lt_changed REFERENCE INTO DATA(lr_changed).
+      ASSIGN lt_items[ ItemUUID  = lr_changed->ItemUUID
+                       %is_draft = lr_changed->IsDraft ] TO FIELD-SYMBOL(<ls_item>).
+
+      IF sy-subrc = 0.
+        APPEND VALUE #(
+          %tky          = <ls_item>-%tky
+          ItemNo        = lr_changed->ItemNo
+          CurrencyCode  = lr_changed->CurrencyCode
+          UnitOfMeasure = lr_changed->UnitOfMeasure
+          VatCode       = lr_changed->VatCode
+        ) TO lt_update.
+      ENDIF.
+    ENDLOOP.
+
+    IF lt_update IS NOT INITIAL.
+      MODIFY ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
+        ENTITY PurchaseOrderItem
+        UPDATE FIELDS ( ItemNo CurrencyCode UnitOfMeasure VatCode )
+        WITH lt_update.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD calcAmountsOnQtyPrice.
+    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
+      ENTITY PurchaseOrderItem
+      FIELDS ( HeaderUUID ItemCode Quantity Price VatCode NetAmount VatAmount GrossAmount )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_items).
+
+    IF lt_items IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    " Delegate the recalculation to the shared item logic (same for all documents), only changed items are returned
+    DATA(lt_changed) = NEW zcl_merp_doc_item_logic( )->recalc_on_qty_price(
+      CORRESPONDING #( lt_items MAPPING IsDraft = %is_draft ) ).
+
+    DATA lt_items_update TYPE TABLE FOR UPDATE zmerp_r_purchaseorder\\PurchaseOrderItem.
+
+    " Map recalculated amounts back to the instances (UUID + draft state) of the transactional buffer
+    LOOP AT lt_changed REFERENCE INTO DATA(lr_changed).
+      ASSIGN lt_items[ ItemUUID  = lr_changed->ItemUUID
+                       %is_draft = lr_changed->IsDraft ] TO FIELD-SYMBOL(<ls_item>).
+
+      IF sy-subrc = 0.
+        APPEND VALUE #(
+          %tky                 = <ls_item>-%tky
+          NetAmount            = lr_changed->NetAmount
+          VatAmount            = lr_changed->VatAmount
+          GrossAmount          = lr_changed->GrossAmount
+          %control-NetAmount   = if_abap_behv=>mk-on
+          %control-VatAmount   = if_abap_behv=>mk-on
+          %control-GrossAmount = if_abap_behv=>mk-on
+        ) TO lt_items_update.
+      ENDIF.
+    ENDLOOP.
+
+    IF lt_items_update IS NOT INITIAL.
+      MODIFY ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
+        ENTITY PurchaseOrderItem
+        UPDATE FIELDS ( NetAmount VatAmount GrossAmount )
+        WITH lt_items_update.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD calcAmountsOnVatCode.
+    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
+      ENTITY PurchaseOrderItem
+      FIELDS ( HeaderUUID VatCode NetAmount VatAmount GrossAmount )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_items).
+
+    IF lt_items IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    " Delegate the recalculation to the shared item logic (same for all documents), only changed items are returned
+    DATA(lt_changed) = NEW zcl_merp_doc_item_logic( )->recalc_on_vat_code(
+      CORRESPONDING #( lt_items MAPPING IsDraft = %is_draft ) ).
+
+    DATA lt_items_update TYPE TABLE FOR UPDATE zmerp_r_purchaseorder\\PurchaseOrderItem.
+
+    " Map recalculated amounts back to the instances (UUID + draft state) of the transactional buffer
+    LOOP AT lt_changed REFERENCE INTO DATA(lr_changed).
+      ASSIGN lt_items[ ItemUUID  = lr_changed->ItemUUID
+                       %is_draft = lr_changed->IsDraft ] TO FIELD-SYMBOL(<ls_item>).
+
+      IF sy-subrc = 0.
+        APPEND VALUE #(
+          %tky                 = <ls_item>-%tky
+          VatAmount            = lr_changed->VatAmount
+          GrossAmount          = lr_changed->GrossAmount
+          %control-VatAmount   = if_abap_behv=>mk-on
+          %control-GrossAmount = if_abap_behv=>mk-on
+        ) TO lt_items_update.
+      ENDIF.
+    ENDLOOP.
+
+    IF lt_items_update IS NOT INITIAL.
+      MODIFY ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
+        ENTITY PurchaseOrderItem
+        UPDATE FIELDS ( VatAmount GrossAmount )
+        WITH lt_items_update.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD calcHeaderTotals.
+    " Read parent headers of the created/changed items (deleted items can no longer be read)
+    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
+      ENTITY PurchaseOrderItem BY \_PurchaseOrder
+      FIELDS ( DocumentUUID )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_headers).
+
+    " Add parents of the items deleted in this request (collected in precheck_delete)
+    LOOP AT gt_deleted_headers REFERENCE INTO DATA(lr_deleted).
+      APPEND VALUE #( DocumentUUID = lr_deleted->document_uuid
+                      %is_draft    = lr_deleted->is_draft ) TO lt_headers.
+    ENDLOOP.
+    CLEAR gt_deleted_headers.
+
+    IF lt_headers IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    " Each header once (several items of one document)
+    SORT lt_headers BY DocumentUUID %is_draft.
+    DELETE ADJACENT DUPLICATES FROM lt_headers COMPARING DocumentUUID %is_draft.
+
+    " Read all items of those headers in one call to pass into the shared item logic
+    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
+      ENTITY PurchaseOrder BY \_Items
+      FIELDS ( HeaderUUID NetAmount VatAmount GrossAmount )
+      WITH CORRESPONDING #( lt_headers )
+      RESULT DATA(lt_items).
+
+    " Delegate the summation to the shared item logic (same for all documents)
+    DATA(lt_totals) = NEW zcl_merp_doc_item_logic( )->calc_header_totals(
+      it_header_keys = VALUE #( FOR header IN lt_headers
+                                ( HeaderUUID = header-DocumentUUID
+                                  IsDraft    = header-%is_draft ) )
+      it_items       = CORRESPONDING #( lt_items MAPPING IsDraft = %is_draft ) ).
+
+    DATA lt_po_update TYPE TABLE FOR UPDATE zmerp_r_purchaseorder.
+
+    LOOP AT lt_totals REFERENCE INTO DATA(lr_total).
+      ASSIGN lt_headers[ DocumentUUID = lr_total->HeaderUUID
+                         %is_draft    = lr_total->IsDraft ] TO FIELD-SYMBOL(<ls_header>).
+
+      IF sy-subrc = 0.
+        APPEND VALUE #(
+          %tky                      = <ls_header>-%tky
+          TotalNetAmount            = lr_total->TotalNetAmount
+          TotalGrossAmount          = lr_total->TotalGrossAmount
+          %control-TotalNetAmount   = if_abap_behv=>mk-on
+          %control-TotalGrossAmount = if_abap_behv=>mk-on
+        ) TO lt_po_update.
+      ENDIF.
+    ENDLOOP.
+
+    IF lt_po_update IS NOT INITIAL.
+      MODIFY ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
+        ENTITY PurchaseOrder
+        UPDATE FIELDS ( TotalNetAmount TotalGrossAmount )
+        WITH lt_po_update.
+    ENDIF.
+  ENDMETHOD.
+
+  " --- Validations ---
   METHOD validateItemFields.
     DATA lv_has_error TYPE abap_bool.
     DATA lo_message   TYPE REF TO if_abap_behv_message.
@@ -1426,6 +1661,60 @@ CLASS lhc_zmerp_r_purchaseorderitm IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
+  " --- Clearing of validation messages ---
+  METHOD clearMessagesForItemFields.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    " A message is cleared once the field is valid or filled
+    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
+      ENTITY PurchaseOrderItem
+      FIELDS ( HeaderUUID Quantity Price UnitOfMeasure VatCode )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_items).
+
+    IF lt_items IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    LOOP AT lt_items REFERENCE INTO DATA(lr_item).
+
+      " 1. Quantity
+      IF zcl_merp_doc_validator=>is_item_quantity_valid( lr_item->Quantity ) = abap_true.
+        APPEND VALUE #( %tky        = lr_item->%tky
+                        %path       = VALUE #( PurchaseOrder-%is_draft    = lr_item->%is_draft
+                                               PurchaseOrder-DocumentUUID = lr_item->HeaderUUID )
+                        %state_area = c_val_quantity ) TO reported-purchaseorderitem.
+      ENDIF.
+
+      " 2. Price
+      IF zcl_merp_doc_validator=>is_item_price_valid( lr_item->Price ) = abap_true.
+        APPEND VALUE #( %tky        = lr_item->%tky
+                        %path       = VALUE #( PurchaseOrder-%is_draft    = lr_item->%is_draft
+                                               PurchaseOrder-DocumentUUID = lr_item->HeaderUUID )
+                        %state_area = c_val_price ) TO reported-purchaseorderitem.
+      ENDIF.
+
+      " 3. Unit of measure
+      IF lr_item->UnitOfMeasure IS NOT INITIAL.
+        APPEND VALUE #( %tky        = lr_item->%tky
+                        %path       = VALUE #( PurchaseOrder-%is_draft    = lr_item->%is_draft
+                                               PurchaseOrder-DocumentUUID = lr_item->HeaderUUID )
+                        %state_area = c_val_uom ) TO reported-purchaseorderitem.
+      ENDIF.
+
+      " 4. VAT code
+      IF lr_item->VatCode IS NOT INITIAL.
+        APPEND VALUE #( %tky        = lr_item->%tky
+                        %path       = VALUE #( PurchaseOrder-%is_draft    = lr_item->%is_draft
+                                               PurchaseOrder-DocumentUUID = lr_item->HeaderUUID )
+                        %state_area = c_val_vat_code ) TO reported-purchaseorderitem.
+      ENDIF.
+
+    ENDLOOP.
+  ENDMETHOD.
+
   METHOD handleMessagesOnItemModify.
     READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
       ENTITY PurchaseOrderItem
@@ -1493,275 +1782,7 @@ CLASS lhc_zmerp_r_purchaseorderitm IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
-  METHOD clearMessagesForItemFields.
-    IF keys IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    " A message is cleared once the field is valid or filled
-    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
-      ENTITY PurchaseOrderItem
-      FIELDS ( HeaderUUID Quantity Price UnitOfMeasure VatCode )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_items).
-
-    IF lt_items IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    LOOP AT lt_items REFERENCE INTO DATA(lr_item).
-
-      " 1. Quantity
-      IF zcl_merp_doc_validator=>is_item_quantity_valid( lr_item->Quantity ) = abap_true.
-        APPEND VALUE #( %tky        = lr_item->%tky
-                        %path       = VALUE #( PurchaseOrder-%is_draft    = lr_item->%is_draft
-                                               PurchaseOrder-DocumentUUID = lr_item->HeaderUUID )
-                        %state_area = c_val_quantity ) TO reported-purchaseorderitem.
-      ENDIF.
-
-      " 2. Price
-      IF zcl_merp_doc_validator=>is_item_price_valid( lr_item->Price ) = abap_true.
-        APPEND VALUE #( %tky        = lr_item->%tky
-                        %path       = VALUE #( PurchaseOrder-%is_draft    = lr_item->%is_draft
-                                               PurchaseOrder-DocumentUUID = lr_item->HeaderUUID )
-                        %state_area = c_val_price ) TO reported-purchaseorderitem.
-      ENDIF.
-
-      " 3. Unit of measure
-      IF lr_item->UnitOfMeasure IS NOT INITIAL.
-        APPEND VALUE #( %tky        = lr_item->%tky
-                        %path       = VALUE #( PurchaseOrder-%is_draft    = lr_item->%is_draft
-                                               PurchaseOrder-DocumentUUID = lr_item->HeaderUUID )
-                        %state_area = c_val_uom ) TO reported-purchaseorderitem.
-      ENDIF.
-
-      " 4. VAT code
-      IF lr_item->VatCode IS NOT INITIAL.
-        APPEND VALUE #( %tky        = lr_item->%tky
-                        %path       = VALUE #( PurchaseOrder-%is_draft    = lr_item->%is_draft
-                                               PurchaseOrder-DocumentUUID = lr_item->HeaderUUID )
-                        %state_area = c_val_vat_code ) TO reported-purchaseorderitem.
-      ENDIF.
-
-    ENDLOOP.
-  ENDMETHOD.
-
-  METHOD calcHeaderTotals.
-    " Read parent headers of the created/changed items (deleted items can no longer be read)
-    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
-      ENTITY PurchaseOrderItem BY \_PurchaseOrder
-      FIELDS ( DocumentUUID )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_headers).
-
-    " Add parents of the items deleted in this request (collected in precheck_delete)
-    LOOP AT gt_deleted_headers REFERENCE INTO DATA(lr_deleted).
-      APPEND VALUE #( DocumentUUID = lr_deleted->document_uuid
-                      %is_draft    = lr_deleted->is_draft ) TO lt_headers.
-    ENDLOOP.
-    CLEAR gt_deleted_headers.
-
-    IF lt_headers IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    " Each header once (several items of one document)
-    SORT lt_headers BY DocumentUUID %is_draft.
-    DELETE ADJACENT DUPLICATES FROM lt_headers COMPARING DocumentUUID %is_draft.
-
-    " Read all items of those headers in one call to pass into the shared item logic
-    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
-      ENTITY PurchaseOrder BY \_Items
-      FIELDS ( HeaderUUID NetAmount VatAmount GrossAmount )
-      WITH CORRESPONDING #( lt_headers )
-      RESULT DATA(lt_items).
-
-    " Delegate the summation to the shared item logic (same for all documents)
-    DATA(lt_totals) = NEW zcl_merp_doc_item_logic( )->calc_header_totals(
-      it_header_keys = VALUE #( FOR header IN lt_headers
-                                ( HeaderUUID = header-DocumentUUID
-                                  IsDraft    = header-%is_draft ) )
-      it_items       = CORRESPONDING #( lt_items MAPPING IsDraft = %is_draft ) ).
-
-    DATA lt_po_update TYPE TABLE FOR UPDATE zmerp_r_purchaseorder.
-
-    LOOP AT lt_totals REFERENCE INTO DATA(lr_total).
-      ASSIGN lt_headers[ DocumentUUID = lr_total->HeaderUUID
-                         %is_draft    = lr_total->IsDraft ] TO FIELD-SYMBOL(<ls_header>).
-
-      IF sy-subrc = 0.
-        APPEND VALUE #(
-          %tky                      = <ls_header>-%tky
-          TotalNetAmount            = lr_total->TotalNetAmount
-          TotalGrossAmount          = lr_total->TotalGrossAmount
-          %control-TotalNetAmount   = if_abap_behv=>mk-on
-          %control-TotalGrossAmount = if_abap_behv=>mk-on
-        ) TO lt_po_update.
-      ENDIF.
-    ENDLOOP.
-
-    IF lt_po_update IS NOT INITIAL.
-      MODIFY ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
-        ENTITY PurchaseOrder
-        UPDATE FIELDS ( TotalNetAmount TotalGrossAmount )
-        WITH lt_po_update.
-    ENDIF.
-  ENDMETHOD.
-
-  METHOD setItemDefaults.
-
-    " Items and their parent headers (document currency)
-    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
-      ENTITY PurchaseOrderItem
-        FIELDS ( HeaderUUID ItemNo ItemCode UnitOfMeasure VatCode CurrencyCode )
-        WITH CORRESPONDING #( keys )
-        RESULT DATA(lt_items)
-      ENTITY PurchaseOrderItem BY \_PurchaseOrder
-        FIELDS ( CurrencyCode )
-        WITH CORRESPONDING #( keys )
-        RESULT DATA(lt_headers).
-
-    IF lt_items IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    " All items of the affected documents: highest used item number per document
-    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
-      ENTITY PurchaseOrder BY \_Items
-      FIELDS ( HeaderUUID ItemNo )
-      WITH CORRESPONDING #( lt_headers )
-      RESULT DATA(lt_siblings).
-
-    " Delegate the defaulting to the shared item logic (same for all documents), only changed items are returned
-    DATA(lt_changed) = NEW zcl_merp_doc_item_logic( )->set_defaults(
-      it_items             = CORRESPONDING #( lt_items MAPPING IsDraft = %is_draft )
-      it_siblings          = CORRESPONDING #( lt_siblings MAPPING IsDraft = %is_draft )
-      it_header_currencies = CORRESPONDING #( lt_headers MAPPING HeaderUUID = DocumentUUID
-                                                                 IsDraft    = %is_draft ) ).
-
-    DATA lt_update TYPE TABLE FOR UPDATE zmerp_r_purchaseorder\\PurchaseOrderItem.
-
-    " Map defaults back to the instances (UUID + draft state) of the transactional buffer
-    LOOP AT lt_changed REFERENCE INTO DATA(lr_changed).
-      ASSIGN lt_items[ ItemUUID  = lr_changed->ItemUUID
-                       %is_draft = lr_changed->IsDraft ] TO FIELD-SYMBOL(<ls_item>).
-
-      IF sy-subrc = 0.
-        APPEND VALUE #(
-          %tky          = <ls_item>-%tky
-          ItemNo        = lr_changed->ItemNo
-          CurrencyCode  = lr_changed->CurrencyCode
-          UnitOfMeasure = lr_changed->UnitOfMeasure
-          VatCode       = lr_changed->VatCode
-        ) TO lt_update.
-      ENDIF.
-    ENDLOOP.
-
-    IF lt_update IS NOT INITIAL.
-      MODIFY ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
-        ENTITY PurchaseOrderItem
-        UPDATE FIELDS ( ItemNo CurrencyCode UnitOfMeasure VatCode )
-        WITH lt_update.
-    ENDIF.
-  ENDMETHOD.
-
-  METHOD calcAmountsOnQtyPrice.
-    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
-      ENTITY PurchaseOrderItem
-      FIELDS ( HeaderUUID ItemCode Quantity Price VatCode NetAmount VatAmount GrossAmount )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_items).
-
-    IF lt_items IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    " Delegate the recalculation to the shared item logic (same for all documents), only changed items are returned
-    DATA(lt_changed) = NEW zcl_merp_doc_item_logic( )->recalc_on_qty_price(
-      CORRESPONDING #( lt_items MAPPING IsDraft = %is_draft ) ).
-
-    DATA lt_items_update TYPE TABLE FOR UPDATE zmerp_r_purchaseorder\\PurchaseOrderItem.
-
-    " Map recalculated amounts back to the instances (UUID + draft state) of the transactional buffer
-    LOOP AT lt_changed REFERENCE INTO DATA(lr_changed).
-      ASSIGN lt_items[ ItemUUID  = lr_changed->ItemUUID
-                       %is_draft = lr_changed->IsDraft ] TO FIELD-SYMBOL(<ls_item>).
-
-      IF sy-subrc = 0.
-        APPEND VALUE #(
-          %tky                 = <ls_item>-%tky
-          NetAmount            = lr_changed->NetAmount
-          VatAmount            = lr_changed->VatAmount
-          GrossAmount          = lr_changed->GrossAmount
-          %control-NetAmount   = if_abap_behv=>mk-on
-          %control-VatAmount   = if_abap_behv=>mk-on
-          %control-GrossAmount = if_abap_behv=>mk-on
-        ) TO lt_items_update.
-      ENDIF.
-    ENDLOOP.
-
-    IF lt_items_update IS NOT INITIAL.
-      MODIFY ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
-        ENTITY PurchaseOrderItem
-        UPDATE FIELDS ( NetAmount VatAmount GrossAmount )
-        WITH lt_items_update.
-    ENDIF.
-  ENDMETHOD.
-
-  METHOD calcAmountsOnVatCode.
-    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
-      ENTITY PurchaseOrderItem
-      FIELDS ( HeaderUUID VatCode NetAmount VatAmount GrossAmount )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_items).
-
-    IF lt_items IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    " Delegate the recalculation to the shared item logic (same for all documents), only changed items are returned
-    DATA(lt_changed) = NEW zcl_merp_doc_item_logic( )->recalc_on_vat_code(
-      CORRESPONDING #( lt_items MAPPING IsDraft = %is_draft ) ).
-
-    DATA lt_items_update TYPE TABLE FOR UPDATE zmerp_r_purchaseorder\\PurchaseOrderItem.
-
-    " Map recalculated amounts back to the instances (UUID + draft state) of the transactional buffer
-    LOOP AT lt_changed REFERENCE INTO DATA(lr_changed).
-      ASSIGN lt_items[ ItemUUID  = lr_changed->ItemUUID
-                       %is_draft = lr_changed->IsDraft ] TO FIELD-SYMBOL(<ls_item>).
-
-      IF sy-subrc = 0.
-        APPEND VALUE #(
-          %tky                 = <ls_item>-%tky
-          VatAmount            = lr_changed->VatAmount
-          GrossAmount          = lr_changed->GrossAmount
-          %control-VatAmount   = if_abap_behv=>mk-on
-          %control-GrossAmount = if_abap_behv=>mk-on
-        ) TO lt_items_update.
-      ENDIF.
-    ENDLOOP.
-
-    IF lt_items_update IS NOT INITIAL.
-      MODIFY ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
-        ENTITY PurchaseOrderItem
-        UPDATE FIELDS ( VatAmount GrossAmount )
-        WITH lt_items_update.
-    ENDIF.
-  ENDMETHOD.
-
-  METHOD precheck_delete.
-    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
-      ENTITY PurchaseOrderItem
-      FIELDS ( HeaderUUID )
-      WITH CORRESPONDING #( keys )
-      RESULT DATA(lt_items).
-
-    " Parents of the deleted items, for calcHeaderTotals
-    gt_deleted_headers = VALUE #( BASE gt_deleted_headers
-      FOR item IN lt_items ( document_uuid = item-HeaderUUID
-                             is_draft      = item-%is_draft ) ).
-  ENDMETHOD.
-
 ENDCLASS.
+
 
 
