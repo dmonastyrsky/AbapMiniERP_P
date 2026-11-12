@@ -14,6 +14,8 @@ CLASS zcl_merp_doc_item_logic DEFINITION
     "! Component names match the fields of the document item entities, so the caller can fill it with
     "! CORRESPONDING (IsDraft is the only technical field: pass-through of %is_draft, needed to map results back).
     "! Only the fields read by the caller are filled, all other components stay initial.
+    "! OrderItemReferenceUUID: reference to the order item (PO item for a goods receipt, SO item for a goods issue);
+    "! filled by the caller from its own reference field, lines with a reference keep the values of the order.
     TYPES: BEGIN OF ty_item,
              ItemUUID            TYPE sysuuid_x16,
              HeaderUUID          TYPE sysuuid_x16,
@@ -28,7 +30,7 @@ CLASS zcl_merp_doc_item_logic DEFINITION
              VatCode             TYPE zmerp_vat_code,
              VatAmount           TYPE zmerp_vat_amount,
              GrossAmount         TYPE zmerp_gross_amount,
-             PoItemReferenceUUID TYPE sysuuid_x16,
+             OrderItemReferenceUUID TYPE sysuuid_x16,
            END OF ty_item,
            tt_items TYPE STANDARD TABLE OF ty_item WITH EMPTY KEY.
 
@@ -63,7 +65,7 @@ CLASS zcl_merp_doc_item_logic DEFINITION
                 io_item_selector TYPE REF TO zif_merp_md_item_sel OPTIONAL.
 
     "! Quantity or price changed: net -> VAT -> gross are recalculated (prices are always without VAT)
-    "! @parameter it_items             | Items to be processed (HeaderUUID, ItemNo, ItemCode, UnitOfMeasure, VatCode, CurrencyCode, PoItemReferenceUUID)
+    "! @parameter it_items             | Items to be processed (HeaderUUID, ItemNo, ItemCode, UnitOfMeasure, VatCode, CurrencyCode, OrderItemReferenceUUID)
     "! @parameter rt_changed | Only the items whose amounts really changed (with the new amounts)
     METHODS recalc_on_qty_price
       IMPORTING it_items          TYPE tt_items
@@ -253,10 +255,10 @@ CLASS zcl_merp_doc_item_logic IMPLEMENTATION.
       ENDIF.
 
       " UoM and VAT code are taken from the item master data (overwriting current values) if the item exists;
-      " items copied from a purchase order keep the UoM and VAT code of the order item.
+      " items copied from an order (purchase or sales order) keep the UoM and VAT code of the order item.
       " A blocked VAT code of the item is not proposed: the field is cleared, so the user selects a current one
       " (a VAT code of the previously selected item must not stay on the line)
-      IF ls_item-ItemCode IS NOT INITIAL AND ls_item-PoItemReferenceUUID IS INITIAL.
+      IF ls_item-ItemCode IS NOT INITIAL AND ls_item-OrderItemReferenceUUID IS INITIAL.
         ASSIGN lt_items_master[ ItemCode = ls_item-ItemCode ] TO FIELD-SYMBOL(<ls_master>).
         IF sy-subrc = 0.
           ls_item-UnitOfMeasure = <ls_master>-BaseUnitOfMeasure.

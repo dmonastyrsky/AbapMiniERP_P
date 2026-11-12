@@ -46,6 +46,20 @@ CLASS zcl_merp_md_item_sel IMPLEMENTATION.
       INTO TABLE @rt_items.
   ENDMETHOD.
 
+  METHOD zif_merp_md_item_sel~read_stock_items.
+    DATA(lt_clean_keys) = prepare_keys( it_item_keys ).
+    IF lt_clean_keys IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    " Only products are kept in stock (the item type decides it, like the material type in SAP)
+    SELECT item~ItemCode
+      FROM zmerp_r_item AS item
+      INNER JOIN @lt_clean_keys AS keys ON item~ItemCode = keys~ItemCode
+      WHERE item~ItemTypeCode = @zif_merp_constants=>c_item_type-product
+      INTO TABLE @rt_stock_items.
+  ENDMETHOD.
+
   METHOD zif_merp_md_item_sel~read_usages.
     DATA(lt_clean_keys) = prepare_keys( it_item_keys ).
     IF lt_clean_keys IS INITIAL.

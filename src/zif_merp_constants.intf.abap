@@ -133,6 +133,50 @@ INTERFACE zif_merp_constants
       field_draft   TYPE string VALUE 'ITEMUUID',
     END OF c_gr_itm,
 
+    " Sales Orders Metadata
+    BEGIN OF c_so,
+      prefix        TYPE string VALUE '',
+      length        TYPE i VALUE 10,
+      number_object TYPE cl_numberrange_runtime=>nr_object VALUE 'ZNR_SALORD',
+      table_db      TYPE string VALUE 'ZMERP_SO_HDR',
+      field_db      TYPE string VALUE 'DOCUMENT_NUMBER',
+      table_draft   TYPE string VALUE 'ZMERP_SO_HDR_D',
+      field_draft   TYPE string VALUE 'DOCUMENTNUMBER',
+    END OF c_so,
+
+    " Sales Order Items Metadata
+    BEGIN OF c_so_itm,
+      prefix        TYPE string VALUE '',
+      length        TYPE i VALUE 0,
+      number_object TYPE cl_numberrange_runtime=>nr_object VALUE '',
+      table_db      TYPE string VALUE 'ZMERP_SO_ITM',
+      field_db      TYPE string VALUE 'ITEM_UUID',
+      table_draft   TYPE string VALUE 'ZMERP_SO_ITM_D',
+      field_draft   TYPE string VALUE 'ITEMUUID',
+    END OF c_so_itm,
+
+    " Goods Issues Metadata
+    BEGIN OF c_gi,
+      prefix        TYPE string VALUE '',
+      length        TYPE i VALUE 10,
+      number_object TYPE cl_numberrange_runtime=>nr_object VALUE 'ZNR_GDSISS',
+      table_db      TYPE string VALUE 'ZMERP_GI_HDR',
+      field_db      TYPE string VALUE 'DOCUMENT_NUMBER',
+      table_draft   TYPE string VALUE 'ZMERP_GI_HDR_D',
+      field_draft   TYPE string VALUE 'DOCUMENTNUMBER',
+    END OF c_gi,
+
+    " Goods Issue Items Metadata
+    BEGIN OF c_gi_itm,
+      prefix        TYPE string VALUE '',
+      length        TYPE i VALUE 0,
+      number_object TYPE cl_numberrange_runtime=>nr_object VALUE '',
+      table_db      TYPE string VALUE 'ZMERP_GI_ITM',
+      field_db      TYPE string VALUE 'ITEM_UUID',
+      table_draft   TYPE string VALUE 'ZMERP_GI_ITM_D',
+      field_draft   TYPE string VALUE 'ITEMUUID',
+    END OF c_gi_itm,
+
     " Stock Movements Metadata (journal: no draft, no number range)
     BEGIN OF c_stock_mov,
       prefix        TYPE string VALUE '',

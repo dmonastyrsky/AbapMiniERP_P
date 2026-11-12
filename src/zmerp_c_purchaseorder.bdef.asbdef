@@ -17,6 +17,7 @@ use etag
   use function GetDefaultsForSetInDelivery;
   use action cancelDocument;
   use action completeDocument;
+  use action createGoodsReceipt result entity ZMERP_C_GOODSRECEIPT;
 
   use action Edit;
   use action Activate;

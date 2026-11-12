@@ -197,7 +197,16 @@ CLASS zcx_merp_pur DEFINITION
         attr2 TYPE scx_attrname VALUE '',
         attr3 TYPE scx_attrname VALUE '',
         attr4 TYPE scx_attrname VALUE '',
-      END OF goods_receipt_not_found.
+      END OF goods_receipt_not_found,
+
+      BEGIN OF goods_receipt_draft_created,
+        msgid TYPE symsgid VALUE 'ZMC_MERP_DOC',
+        msgno TYPE symsgno VALUE '300',
+        attr1 TYPE scx_attrname VALUE 'MV_ATTR1',
+        attr2 TYPE scx_attrname VALUE '',
+        attr3 TYPE scx_attrname VALUE '',
+        attr4 TYPE scx_attrname VALUE '',
+      END OF goods_receipt_draft_created.
 
   PROTECTED SECTION.
   PRIVATE SECTION.

@@ -1,4 +1,5 @@
-"! Writes the stock movement journal ZMERP_STOCK_MOV (GR28, GR33).
+"! Writes the stock movement journal ZMERP_STOCK_MOV (GR28, GR33) and values issues
+"! at moving average cost (ST2), as the goods movement posting does in SAP.
 "! Writes to the database: call only from the save phase of a business object
 "! (save_modified of an additional save), never from determinations, validations or actions.
 "! Both methods work on sets: one database operation for all documents of a request.
@@ -13,8 +14,9 @@ CLASS zcl_merp_stock_posting DEFINITION
            END OF ty_document_key,
            tt_document_keys TYPE STANDARD TABLE OF ty_document_key WITH EMPTY KEY.
 
-    "! One movement of a document line. Receipts have a positive quantity and value,
-    "! issues a negative one; the value is in company currency.
+    "! One movement of a document line. Receipts have a positive quantity and bring their value
+    "! (company currency); issues have a negative quantity and are valued by the stock posting
+    "! (their amount is ignored).
     TYPES: BEGIN OF ty_movement,
              document_uuid      TYPE zmerp_stock_mov-document_uuid,
              document_item_uuid TYPE zmerp_stock_mov-document_item_uuid,
@@ -36,8 +38,9 @@ CLASS zcl_merp_stock_posting DEFINITION
         it_document_keys TYPE tt_document_keys.
 
     "! Inserts the movements of document lines. Services (item type S) are not kept in stock
-    "! and are skipped (GR31).
-    "! @parameter iv_document_type | Document type of the movements ('GR', later 'GI')
+    "! and are skipped (GR31). Issues are valued at moving average cost of the current stock (ST2):
+    "! call after the old movements of the documents are removed.
+    "! @parameter iv_document_type | Document type of the movements ('GR', 'GI')
     "! @parameter it_movements     | Movements of the document lines (one or several documents)
     CLASS-METHODS insert_movements
       IMPORTING
@@ -68,22 +71,63 @@ CLASS zcl_merp_stock_posting IMPLEMENTATION.
 
   METHOD insert_movements.
     DATA lt_db_movements TYPE STANDARD TABLE OF zmerp_stock_mov WITH EMPTY KEY.
+    DATA lt_stock        TYPE zif_merp_stock_sel=>tt_balances.
+    DATA lv_amount       TYPE zmerp_stock_mov-amount.
 
     IF it_movements IS INITIAL.
       RETURN.
     ENDIF.
 
-    " Services are received (order progress) but are not kept in stock
-    DATA(lt_items_master) = NEW zcl_merp_md_item_sel( )->zif_merp_md_item_sel~read_items(
+    " Only items kept in stock get movements: services close order items but have no stock (GR31)
+    DATA(lt_stock_items) = NEW zcl_merp_md_item_sel( )->zif_merp_md_item_sel~read_stock_items(
       VALUE #( FOR movement IN it_movements ( ItemCode = movement-item_code ) ) ).
+
+    " Current stock quantity and value of the issued items (the stock is locked by the posting action)
+    DATA(lt_stock_keys) = VALUE zif_merp_stock_sel=>tt_stock_keys(
+      FOR movement IN it_movements WHERE ( quantity < 0 )
+      ( CompanyCode   = movement-company_code
+        WarehouseCode = movement-warehouse_code
+        ItemCode      = movement-item_code
+        UnitOfMeasure = movement-unit_of_measure ) ).
+    IF lt_stock_keys IS NOT INITIAL.
+      lt_stock = NEW zcl_merp_stock_sel( )->zif_merp_stock_sel~read_balances( lt_stock_keys ).
+    ENDIF.
 
     DATA(lv_user) = cl_abap_context_info=>get_user_technical_name( ).
     GET TIME STAMP FIELD DATA(lv_timestamp).
 
     LOOP AT it_movements REFERENCE INTO DATA(lr_movement).
-      IF VALUE #( lt_items_master[ ItemCode = lr_movement->item_code ]-ItemTypeCode OPTIONAL )
-         = zif_merp_constants=>c_item_type-service.
+      IF NOT line_exists( lt_stock_items[ table_line = lr_movement->item_code ] ).
         CONTINUE.
+      ENDIF.
+
+      " Movements are valued one after another, so the balance follows each movement of this call
+      ASSIGN lt_stock[ CompanyCode   = lr_movement->company_code
+                       WarehouseCode = lr_movement->warehouse_code
+                       ItemCode      = lr_movement->item_code
+                       UnitOfMeasure = lr_movement->unit_of_measure ] TO FIELD-SYMBOL(<ls_stock>).
+      DATA(lv_stock_found) = xsdbool( sy-subrc = 0 ).
+
+      IF lr_movement->quantity < 0.
+        " Issue at moving average cost: quantity x stock value / stock quantity; the whole remaining
+        " quantity takes the whole remaining value, so the stock value closes at exactly 0.00
+        CLEAR lv_amount.
+        IF lv_stock_found = abap_true AND <ls_stock>-Quantity > 0.
+          lv_amount = COND #( WHEN abs( lr_movement->quantity ) >= <ls_stock>-Quantity
+                                THEN <ls_stock>-StockValue
+                              ELSE round( val = CONV decfloat34( abs( lr_movement->quantity ) )
+                                                * <ls_stock>-StockValue / <ls_stock>-Quantity
+                                          dec = 2 ) ).
+        ENDIF.
+        lv_amount = - lv_amount.
+      ELSE.
+        " Receipt: the value comes from the document
+        lv_amount = lr_movement->amount.
+      ENDIF.
+
+      IF lv_stock_found = abap_true.
+        <ls_stock>-Quantity   += lr_movement->quantity.
+        <ls_stock>-StockValue += lv_amount.
       ENDIF.
 
       TRY.
@@ -94,7 +138,7 @@ CLASS zcl_merp_stock_posting IMPLEMENTATION.
             item_code             = lr_movement->item_code
             quantity              = lr_movement->quantity
             unit_of_measure       = lr_movement->unit_of_measure
-            amount                = lr_movement->amount
+            amount                = lv_amount
             currency_code         = lr_movement->currency_code
             posting_date          = lr_movement->posting_date
             document_type         = iv_document_type

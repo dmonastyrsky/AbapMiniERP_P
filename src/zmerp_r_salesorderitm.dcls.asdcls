@@ -1,0 +1,6 @@
+@EndUserText.label: 'Access Control for ZMERP_R_SALESORDERITM'
+@MappingRole: true
+define role ZMERP_R_SALESORDERITM {
+  grant select on ZMERP_R_SALESORDERITM
+  where INHERITING CONDITIONS FROM ENTITY ZMERP_R_SALESORDER;
+}

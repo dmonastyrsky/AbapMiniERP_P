@@ -9,6 +9,8 @@ INTERFACE zif_merp_md_item_sel
          END OF ty_item_key,
          tt_item_keys TYPE STANDARD TABLE OF ty_item_key WITH EMPTY KEY.
 
+  TYPES tt_item_codes TYPE SORTED TABLE OF zmerp_r_item-ItemCode WITH UNIQUE KEY table_line.
+
   TYPES: BEGIN OF ty_usage,
            ItemCode     TYPE zmerp_r_item-ItemCode,
            UsedInEntity TYPE zmerp_entity_name,
@@ -31,6 +33,14 @@ INTERFACE zif_merp_md_item_sel
   METHODS read_items
     IMPORTING it_item_keys TYPE tt_item_keys
     RETURNING VALUE(rt_items) TYPE tt_items.
+
+  "! Returns the items of the list that are kept in stock (products). Services are not kept in stock:
+  "! they get no stock movements and are neither locked nor checked (GR31). Unknown codes are dropped.
+  "! @parameter it_item_keys   | Table of item keys
+  "! @parameter rt_stock_items | Codes of the items kept in stock
+  METHODS read_stock_items
+    IMPORTING it_item_keys          TYPE tt_item_keys
+    RETURNING VALUE(rt_stock_items) TYPE tt_item_codes.
 
   "! Reads where the given items are used (usage view): one row per code and using entity.
   "! Codes that are not used are not returned.

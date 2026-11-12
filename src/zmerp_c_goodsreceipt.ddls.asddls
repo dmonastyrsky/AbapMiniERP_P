@@ -31,7 +31,7 @@ define root view entity ZMERP_C_GOODSRECEIPT
 
       @Consumption.valueHelpDefinition: [{ 
         entity: { name: 'ZMERP_I_BUS_PARTNER_VH', element: 'PartnerCode' },
-        additionalBinding: [{ element: 'IsSupplier', localConstant: 'X', usage: #FILTER_AND_RESULT }],
+        additionalBinding: [{ element: 'IsSupplier', localConstant: 'X', usage: #FILTER }],
         useForValidation: true 
       }]
       BusinessPartnerCode,

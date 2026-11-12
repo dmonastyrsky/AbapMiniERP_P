@@ -5,124 +5,59 @@ CLASS zcl_merp_num_range_util DEFINITION
 
   PUBLIC SECTION.
 
+    "! Document of the same type that needs a number (the company code is the number range subobject)
+    TYPES: BEGIN OF ty_doc_number_request,
+             HeaderUUID  TYPE sysuuid_x16,
+             IsDraft     TYPE abp_behv_flag,
+             CompanyCode TYPE zmerp_company_code,
+           END OF ty_doc_number_request,
+           tt_doc_number_requests TYPE STANDARD TABLE OF ty_doc_number_request WITH EMPTY KEY.
+
+    "! Number drawn for a document
+    TYPES: BEGIN OF ty_doc_number,
+             HeaderUUID     TYPE sysuuid_x16,
+             IsDraft        TYPE abp_behv_flag,
+             DocumentNumber TYPE zmerp_doc_num,
+           END OF ty_doc_number,
+           tt_doc_numbers TYPE STANDARD TABLE OF ty_doc_number WITH EMPTY KEY.
+
     " Bulk NRO Generation Methods
-    "! Generates multiple sequential Business Partner codes via NRO.
-    "! @parameter iv_count | Total count of sequential codes requested
-    "! @parameter rt_codes | Table of generated formatted Business Partner codes
-    CLASS-METHODS get_next_bp_codes_nro
+    "! Draws master data codes via NRO in one bulk call (no fallback, N1): fewer codes than requested
+    "! raise CX_NUMBER_RANGES, the caller fails its instances.
+    "! @parameter is_meta  | NRO metadata of the master data object (zif_merp_constants=>c_bp, c_item, c_ig, c_vat, c_wh)
+    "! @parameter iv_count | Number of codes
+    "! @parameter rt_codes | Formatted codes in the order of drawing
+    CLASS-METHODS get_md_codes
       IMPORTING
+        is_meta         TYPE zif_merp_constants=>ty_entity_metadata
         iv_count        TYPE i
       RETURNING
         VALUE(rt_codes) TYPE string_table
       RAISING
         cx_number_ranges.
 
-    "! Generates multiple sequential Item codes via NRO.
-    "! @parameter iv_count | Total count of sequential codes requested
-    "! @parameter rt_codes | Table of generated formatted Item codes
-    CLASS-METHODS get_next_item_codes_nro
+    "! Draws document numbers via NRO: one bulk call per company code, numbers in the order of the documents.
+    "! Documents of a company whose numbers cannot be drawn get none (no fallback, N1): the caller's
+    "! validation rejects them.
+    "! @parameter is_meta      | NRO metadata of the document type (zif_merp_constants=>c_po, c_gr, c_so, c_gi)
+    "! @parameter it_requests  | Documents without a number, with company code
+    "! @parameter rt_numbers   | Drawn numbers (documents without a number are missing)
+    CLASS-METHODS get_doc_numbers
       IMPORTING
-        iv_count        TYPE i
+        is_meta           TYPE zif_merp_constants=>ty_entity_metadata
+        it_requests       TYPE tt_doc_number_requests
       RETURNING
-        VALUE(rt_codes) TYPE string_table
-      RAISING
-        cx_number_ranges.
-
-    "! Generates multiple sequential Item Group codes via NRO.
-    "! @parameter iv_count | Total count of sequential codes requested
-    "! @parameter rt_codes | Table of generated formatted Item Group codes
-    CLASS-METHODS get_next_item_grp_codes_nro
-      IMPORTING
-        iv_count        TYPE i
-      RETURNING
-        VALUE(rt_codes) TYPE string_table
-      RAISING
-        cx_number_ranges.
-
-    "! Generates multiple sequential VAT codes via NRO.
-    "! @parameter iv_count | Total count of sequential codes requested
-    "! @parameter rt_codes | Table of generated formatted VAT codes
-    CLASS-METHODS get_next_vat_codes_nro
-      IMPORTING
-        iv_count        TYPE i
-      RETURNING
-        VALUE(rt_codes) TYPE string_table
-      RAISING
-        cx_number_ranges.
-
-    "! Generates multiple sequential Warehouse codes via NRO.
-    "! @parameter iv_count | Total count of sequential codes requested
-    "! @parameter rt_codes | Table of generated formatted Warehouse codes
-    CLASS-METHODS get_next_wh_codes_nro
-      IMPORTING
-        iv_count        TYPE i
-      RETURNING
-        VALUE(rt_codes) TYPE string_table
-      RAISING
-        cx_number_ranges.
-
-    "! Generates multiple sequential Purchase Order numbers via NRO.
-    "! @parameter iv_company_code | Company code context
-    "! @parameter iv_count        | Total count of sequential numbers requested
-    "! @parameter rt_numbers      | Table of generated formatted Purchase Order numbers
-    CLASS-METHODS get_next_po_numbers_nro
-      IMPORTING
-        iv_company_code TYPE zmerp_company_code
-        iv_count        TYPE i
-      RETURNING
-        VALUE(rt_numbers) TYPE string_table
-      RAISING
-        cx_number_ranges.
-
-    "! Generates multiple sequential Goods Receipt numbers via NRO.
-    "! @parameter iv_company_code | Company code context
-    "! @parameter iv_count        | Total count of sequential numbers requested
-    "! @parameter rt_numbers      | Table of generated formatted Goods Receipt numbers
-    CLASS-METHODS get_next_gr_numbers_nro
-      IMPORTING
-        iv_company_code TYPE zmerp_company_code
-        iv_count        TYPE i
-      RETURNING
-        VALUE(rt_numbers) TYPE string_table
-      RAISING
-        cx_number_ranges.
+        VALUE(rt_numbers) TYPE tt_doc_numbers.
 
     " NRO Setup & Administration
-    "! Synchronizes current NRO interval levels for Master Data with actual active database record counts.
+    "! Synchronizes the NRO interval levels of master data and documents with the database.
     CLASS-METHODS sync_intervals_from_db.
 
-    "! Synchronizes current NRO interval levels for all Master Data objects with actual active database record counts.
+    "! Synchronizes the NRO interval levels of all master data objects with the database.
     CLASS-METHODS sync_master_intervals_from_db.
 
-    "! Synchronizes current NRO interval levels for all Transactional Documents across active companies.
+    "! Synchronizes the NRO interval levels of all document types of all company codes with the database.
     CLASS-METHODS sync_doc_intervals_from_db.
-
-    "! Synchronizes Business Partner NRO interval level with actual active database record count.
-    CLASS-METHODS sync_bp_interval_from_db.
-
-    "! Synchronizes Item NRO interval level with actual active database record count.
-    CLASS-METHODS sync_item_interval_from_db.
-
-    "! Synchronizes Item Group NRO interval level with actual active database record count.
-    CLASS-METHODS sync_item_grp_interval_from_db.
-
-    "! Synchronizes VAT NRO interval level with actual active database record count.
-    CLASS-METHODS sync_vat_interval_from_db.
-
-    "! Synchronizes Warehouse NRO interval level with actual active database record count.
-    CLASS-METHODS sync_whse_interval_from_db.
-
-    "! Synchronizes Purchase Order NRO interval level for specified company code.
-    "! @parameter iv_company_code | Company code context
-    CLASS-METHODS sync_po_interval_from_db
-      IMPORTING
-        iv_company_code TYPE zmerp_company_code.
-
-    "! Synchronizes Goods Receipt NRO interval level for specified company code.
-    "! @parameter iv_company_code | Company code context
-    CLASS-METHODS sync_gr_interval_from_db
-      IMPORTING
-        iv_company_code TYPE zmerp_company_code.
 
   PRIVATE SECTION.
 
@@ -133,16 +68,6 @@ CLASS zcl_merp_num_range_util DEFINITION
         iv_company_code  TYPE zmerp_company_code
       RETURNING
         VALUE(rv_prefix) TYPE string.
-
-    "! Several master data codes via NRO (no fallback, N1).
-    CLASS-METHODS get_next_codes_nro
-      IMPORTING
-        is_meta         TYPE zif_merp_constants=>ty_entity_metadata
-        iv_count        TYPE i
-      RETURNING
-        VALUE(rt_codes) TYPE string_table
-      RAISING
-        cx_number_ranges.
 
     "! Several document numbers of a company code via NRO (no fallback, N1).
     CLASS-METHODS get_next_doc_numbers_nro
@@ -197,102 +122,7 @@ ENDCLASS.
 
 CLASS zcl_merp_num_range_util IMPLEMENTATION.
 
-  METHOD get_next_bp_codes_nro.
-    rt_codes = get_next_codes_nro( is_meta = zif_merp_constants=>c_bp iv_count = iv_count ).
-  ENDMETHOD.
-
-  METHOD get_next_item_codes_nro.
-    rt_codes = get_next_codes_nro( is_meta = zif_merp_constants=>c_item iv_count = iv_count ).
-  ENDMETHOD.
-
-  METHOD get_next_item_grp_codes_nro.
-    rt_codes = get_next_codes_nro( is_meta = zif_merp_constants=>c_ig iv_count = iv_count ).
-  ENDMETHOD.
-
-  METHOD get_next_vat_codes_nro.
-    rt_codes = get_next_codes_nro( is_meta = zif_merp_constants=>c_vat iv_count = iv_count ).
-  ENDMETHOD.
-
-  METHOD get_next_wh_codes_nro.
-    rt_codes = get_next_codes_nro( is_meta = zif_merp_constants=>c_wh iv_count = iv_count ).
-  ENDMETHOD.
-
-  METHOD get_next_po_numbers_nro.
-    rt_numbers = get_next_doc_numbers_nro( is_meta         = zif_merp_constants=>c_po
-                                           iv_company_code = iv_company_code
-                                           iv_count        = iv_count ).
-  ENDMETHOD.
-
-  METHOD get_next_gr_numbers_nro.
-    rt_numbers = get_next_doc_numbers_nro( is_meta         = zif_merp_constants=>c_gr
-                                           iv_company_code = iv_company_code
-                                           iv_count        = iv_count ).
-  ENDMETHOD.
-
-  METHOD sync_intervals_from_db.
-    sync_master_intervals_from_db( ).
-    sync_doc_intervals_from_db( ).
-  ENDMETHOD.
-
-  METHOD sync_master_intervals_from_db.
-    sync_bp_interval_from_db( ).
-    sync_item_interval_from_db( ).
-    sync_item_grp_interval_from_db( ).
-    sync_vat_interval_from_db( ).
-    sync_whse_interval_from_db( ).
-  ENDMETHOD.
-
-  METHOD sync_doc_intervals_from_db.
-    " All companies, also blocked ones: their documents still exist and keep their numbering
-    SELECT company_code
-      FROM zmerp_comp_code
-      INTO TABLE @DATA(lt_companies).
-
-    LOOP AT lt_companies ASSIGNING FIELD-SYMBOL(<ls_company>).
-      sync_po_interval_from_db( iv_company_code = <ls_company>-company_code ).
-      sync_gr_interval_from_db( iv_company_code = <ls_company>-company_code ).
-    ENDLOOP.
-  ENDMETHOD.
-
-  METHOD sync_bp_interval_from_db.
-    sync_interval( zif_merp_constants=>c_bp ).
-  ENDMETHOD.
-
-  METHOD sync_item_interval_from_db.
-    sync_interval( zif_merp_constants=>c_item ).
-  ENDMETHOD.
-
-  METHOD sync_item_grp_interval_from_db.
-    sync_interval( zif_merp_constants=>c_ig ).
-  ENDMETHOD.
-
-  METHOD sync_vat_interval_from_db.
-    sync_interval( zif_merp_constants=>c_vat ).
-  ENDMETHOD.
-
-  METHOD sync_whse_interval_from_db.
-    sync_interval( zif_merp_constants=>c_wh ).
-  ENDMETHOD.
-
-  METHOD sync_po_interval_from_db.
-    sync_interval( is_meta         = zif_merp_constants=>c_po
-                   iv_company_code = iv_company_code ).
-  ENDMETHOD.
-
-  METHOD sync_gr_interval_from_db.
-    sync_interval( is_meta         = zif_merp_constants=>c_gr
-                   iv_company_code = iv_company_code ).
-  ENDMETHOD.
-
-  METHOD get_company_prefix.
-    TRY.
-        rv_prefix = NEW zcl_merp_md_comp_code_sel( )->zif_merp_md_comp_code_sel~read_company( iv_company_code )-CompanyPrefix.
-      CATCH zcx_merp_md.
-        CLEAR rv_prefix.
-    ENDTRY.
-  ENDMETHOD.
-
-  METHOD get_next_codes_nro.
+  METHOD get_md_codes.
     rt_codes = zcl_merp_nro_admin_util=>get_next_numbers_from_nro(
       is_meta  = is_meta
       iv_count = iv_count ).
@@ -305,6 +135,84 @@ CLASS zcl_merp_num_range_util IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
+  METHOD get_doc_numbers.
+    DATA lt_numbers TYPE string_table.
+
+    LOOP AT it_requests INTO DATA(ls_request)
+         GROUP BY ls_request-CompanyCode
+         INTO DATA(lv_company_code).
+
+      DATA(lt_company_requests) = VALUE tt_doc_number_requests( FOR member IN GROUP lv_company_code ( member ) ).
+
+      " An NRO error leaves the documents of this company without a number
+      TRY.
+          lt_numbers = get_next_doc_numbers_nro( is_meta         = is_meta
+                                                 iv_company_code = lv_company_code
+                                                 iv_count        = lines( lt_company_requests ) ).
+        CATCH cx_number_ranges.
+          CLEAR lt_numbers.
+      ENDTRY.
+
+      " Numbers in the order of the documents
+      LOOP AT lt_company_requests INTO DATA(ls_company_request).
+        DATA(lv_number) = VALUE string( lt_numbers[ sy-tabix ] OPTIONAL ).
+        IF lv_number IS NOT INITIAL.
+          APPEND VALUE #( HeaderUUID     = ls_company_request-HeaderUUID
+                          IsDraft        = ls_company_request-IsDraft
+                          DocumentNumber = CONV #( lv_number ) ) TO rt_numbers.
+        ENDIF.
+      ENDLOOP.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD sync_intervals_from_db.
+    sync_master_intervals_from_db( ).
+    sync_doc_intervals_from_db( ).
+  ENDMETHOD.
+
+  METHOD sync_master_intervals_from_db.
+    TYPES tt_metas TYPE STANDARD TABLE OF zif_merp_constants=>ty_entity_metadata WITH EMPTY KEY.
+
+    DATA(lt_metas) = VALUE tt_metas( ( zif_merp_constants=>c_bp )
+                                     ( zif_merp_constants=>c_item )
+                                     ( zif_merp_constants=>c_ig )
+                                     ( zif_merp_constants=>c_vat )
+                                     ( zif_merp_constants=>c_wh ) ).
+
+    LOOP AT lt_metas INTO DATA(ls_meta).
+      sync_interval( ls_meta ).
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD sync_doc_intervals_from_db.
+    TYPES tt_metas TYPE STANDARD TABLE OF zif_merp_constants=>ty_entity_metadata WITH EMPTY KEY.
+
+    DATA(lt_metas) = VALUE tt_metas( ( zif_merp_constants=>c_po )
+                                     ( zif_merp_constants=>c_gr )
+                                     ( zif_merp_constants=>c_so )
+                                     ( zif_merp_constants=>c_gi ) ).
+
+    " All companies, also blocked ones: their documents still exist and keep their numbering
+    SELECT company_code
+      FROM zmerp_comp_code
+      INTO TABLE @DATA(lt_companies).
+
+    LOOP AT lt_companies ASSIGNING FIELD-SYMBOL(<ls_company>).
+      LOOP AT lt_metas INTO DATA(ls_meta).
+        sync_interval( is_meta         = ls_meta
+                       iv_company_code = <ls_company>-company_code ).
+      ENDLOOP.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD get_company_prefix.
+    TRY.
+        rv_prefix = NEW zcl_merp_md_comp_code_sel( )->zif_merp_md_comp_code_sel~read_company( iv_company_code )-CompanyPrefix.
+      CATCH zcx_merp_md.
+        CLEAR rv_prefix.
+    ENDTRY.
+  ENDMETHOD.
+
   METHOD get_next_doc_numbers_nro.
     rt_numbers = zcl_merp_nro_admin_util=>get_next_numbers_from_nro(
       is_meta            = is_meta
@@ -312,7 +220,7 @@ CLASS zcl_merp_num_range_util IMPLEMENTATION.
       iv_company_code    = iv_company_code
       iv_prefix_override = get_company_prefix( iv_company_code ) ).
 
-    " No fallback to the database maximum (see get_next_codes_nro): without numbers
+    " No fallback to the database maximum (see get_md_codes): without numbers
     " validateDocumentNumber rejects the documents
     IF lines( rt_numbers ) < iv_count.
       CLEAR rt_numbers.

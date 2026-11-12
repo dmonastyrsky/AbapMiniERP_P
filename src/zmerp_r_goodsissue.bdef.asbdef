@@ -1,0 +1,143 @@
+managed with additional save implementation in class ZBP_MERP_R_GOODSISSUE unique;
+strict ( 2 );
+with draft;
+extensible;
+
+define behavior for ZMERP_R_GOODSISSUE alias GoodsIssue
+persistent table zmerp_gi_hdr
+extensible
+draft table zmerp_gi_hdr_d
+etag master LocalLastChangedAt
+lock master total etag LastChangedAt
+authorization master ( global )
+{
+  create;
+  update;
+  delete ( features : instance, precheck );
+
+  association _Items { create; with draft; }
+
+  field ( readonly, numbering : managed ) DocumentUUID;
+
+  field ( readonly ) DocumentNumber;
+  field ( readonly ) Status;
+  field ( readonly ) TotalNetAmount, TotalGrossAmount;
+  field ( readonly ) CurrencyCode;  // taken from the sales order (deriveDocFromSalesOrder)
+  field ( readonly ) CreatedBy, CreatedAt, LocalLastChangedBy, LocalLastChangedAt, LastChangedAt;
+
+  field ( mandatory ) WarehouseCode, BusinessPartnerCode, DocumentDate, SoReferenceUUID;
+  field ( features : instance ) CompanyCode;  // read-only once the document number (company prefix) is assigned
+
+  action ( features : instance ) postDocument result [1] $self;
+  action ( features : instance ) cancelDocument result [1] $self;
+  action ( features : instance ) unpostDocument result [1] $self;
+
+  determination setHeaderDefaults        on modify { create; }
+  determination deriveHeaderOnCompanyCode on modify { field CompanyCode; }
+  determination deriveDocFromSalesOrder  on modify { field SoReferenceUUID; }
+  determination syncItemCurrency         on modify { field CurrencyCode; }
+  determination assignDocumentNumber     on save { create; }
+  determination deriveDatesOnDocumentDate on modify { field DocumentDate; }
+
+  determination clearMessagesForDates    on modify { field DocumentDate, PostingDate; }
+  determination clearMessagesForHeaderFields on modify { field CompanyCode, WarehouseCode, BusinessPartnerCode, CurrencyCode, SoReferenceUUID; }
+  determination clearSoOnHeaderChange    on modify { field CompanyCode, BusinessPartnerCode, WarehouseCode; }
+
+  validation validateHeaderFields on save { create; update; field CompanyCode, WarehouseCode, BusinessPartnerCode, CurrencyCode, SoReferenceUUID; }
+  validation validateDocumentNumber on save { create; }
+  validation validateDates on save { create; update; field DocumentDate, PostingDate; }
+
+  draft action ( features : instance ) Edit;
+  draft action Activate optimized;
+  draft action Discard;
+  draft action Resume;
+  draft determine action Prepare
+  {
+    validation validateHeaderFields;
+    validation validateDates;
+    validation GoodsIssueItem~validateItemFields;
+  }
+
+  mapping for zmerp_gi_hdr
+  {
+    DocumentUUID        = document_uuid;
+    DocumentNumber      = document_number;
+    DocumentDate        = document_date;
+    PostingDate         = posting_date;
+    CompanyCode         = company_code;
+    WarehouseCode       = warehouse_code;
+    BusinessPartnerCode = business_partner_code;
+    CurrencyCode        = currency_code;
+    TotalNetAmount      = total_net_amount;
+    TotalGrossAmount    = total_gross_amount;
+    ResponsiblePerson   = responsible_person;
+    Remarks             = remarks;
+    SoReferenceUUID     = so_reference_uuid;
+    CustomerReference   = customer_reference;
+    Status              = status;
+    CreatedBy           = created_by;
+    CreatedAt           = created_at;
+    LocalLastChangedBy  = local_last_changed_by;
+    LocalLastChangedAt  = local_last_changed_at;
+    LastChangedAt       = last_changed_at;
+  }
+}
+
+define behavior for ZMERP_R_GOODSISSUEITM alias GoodsIssueItem
+persistent table zmerp_gi_itm
+extensible
+draft table zmerp_gi_itm_d
+etag master LocalLastChangedAt
+lock dependent by _GoodsIssue
+authorization dependent by _GoodsIssue
+{
+  update;
+  delete ( precheck );
+
+  association _GoodsIssue { with draft; }
+
+  field ( readonly, numbering : managed ) ItemUUID;
+  field ( readonly ) HeaderUUID;
+  field ( readonly ) SoItemReferenceUUID;
+
+  field ( readonly ) ItemNo, UnitOfMeasure;
+  field ( readonly ) NetAmount, VatAmount, GrossAmount;
+  field ( readonly ) CreatedBy, CreatedAt, LocalLastChangedBy, LocalLastChangedAt, LastChangedAt;
+
+  field ( mandatory ) Quantity, CurrencyCode;
+  field ( features : instance ) ItemCode, Price, VatCode;
+
+  action ( features : instance, authorization : update ) fillOpenQuantity result [1] $self;
+
+  determination setItemDefaults          on modify { create; field ItemCode; }
+  determination calcAmountsOnQtyPrice    on modify { field Quantity, Price; }
+  determination calcAmountsOnVatCode     on modify { field VatCode; }
+  determination calcHeaderTotals         on modify { create; update; delete; field NetAmount, GrossAmount; }
+
+  determination clearMessagesForItemFields on modify { field Quantity, Price, UnitOfMeasure, VatCode; }
+  determination handleMessagesOnItemModify on modify { field ItemCode; }
+
+  validation validateItemFields on save { create; update; field ItemCode, Quantity, Price, VatCode; }
+
+  mapping for zmerp_gi_itm
+  {
+    ItemUUID             = item_uuid;
+    HeaderUUID           = header_uuid;
+    ItemNo               = item_no;
+    ItemCode             = item_code;
+    Quantity             = quantity;
+    UnitOfMeasure        = unit_of_measure;
+    CurrencyCode         = currency_code;
+    Price                = price;
+    NetAmount            = net_amount;
+    VatCode              = vat_code;
+    VatAmount            = vat_amount;
+    GrossAmount          = gross_amount;
+    SoItemReferenceUUID  = so_item_reference_uuid;
+    CreatedBy            = created_by;
+    CreatedAt            = created_at;
+    LocalLastChangedBy   = local_last_changed_by;
+    LocalLastChangedAt   = local_last_changed_at;
+    LastChangedAt        = last_changed_at;
+  }
+}

@@ -3,7 +3,7 @@
 @Metadata.ignorePropagatedAnnotations: true
 
 // Stock journal ZMERP_STOCK_MOV, read-only (no BDEF): rows are written by the document savers.
-// Receipts have a positive quantity; issues (goods issue, later) will have a negative one.
+// Receipts have a positive quantity, goods issues a negative one.
 define root view entity ZMERP_R_STOCK_MOVEMENT
   as select from zmerp_stock_mov
 
@@ -11,6 +11,7 @@ define root view entity ZMERP_R_STOCK_MOVEMENT
   association [0..1] to ZMERP_R_WAREHOUSE    as _Warehouse    on $projection.WarehouseCode = _Warehouse.WarehouseCode
   association [0..1] to ZMERP_R_ITEM         as _Item         on $projection.ItemCode      = _Item.ItemCode
   association [0..1] to ZMERP_R_GOODSRECEIPT as _GoodsReceipt on $projection.DocumentUUID  = _GoodsReceipt.DocumentUUID
+  association [0..1] to ZMERP_R_GOODSISSUE   as _GoodsIssue   on $projection.DocumentUUID  = _GoodsIssue.DocumentUUID
 {
   key movement_uuid   as MovementUUID,
 
@@ -29,9 +30,9 @@ define root view entity ZMERP_R_STOCK_MOVEMENT
       document_type   as DocumentType,
       document_uuid   as DocumentUUID,
 
-      // Goods issues will add the number of their document here
+      // A movement belongs either to a goods receipt or to a goods issue
       @EndUserText.label: 'Document'
-      _GoodsReceipt.DocumentNumber as DocumentNumber,
+      coalesce( _GoodsReceipt.DocumentNumber, _GoodsIssue.DocumentNumber ) as DocumentNumber,
 
       @Semantics.quantity.unitOfMeasure: 'UnitOfMeasure'
       quantity        as Quantity,

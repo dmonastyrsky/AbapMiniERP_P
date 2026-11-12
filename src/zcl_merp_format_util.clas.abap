@@ -29,54 +29,6 @@ CLASS zcl_merp_format_util DEFINITION
       RETURNING
         VALUE(rv_code)  TYPE string.
 
-    "! Convenience formatter for Business Partner code using predefined prefix and length.
-    "! @parameter iv_number | Raw numeric input
-    "! @parameter rv_code   | Formatted Business Partner code
-    CLASS-METHODS format_bp_code
-      IMPORTING
-        iv_number      TYPE simple
-      RETURNING
-        VALUE(rv_code) TYPE string.
-
-    "! Convenience formatter for Item code using predefined prefix and length.
-    "! @parameter iv_number | Raw numeric input
-    "! @parameter rv_code   | Formatted Item code
-    CLASS-METHODS format_item_code
-      IMPORTING
-        iv_number      TYPE simple
-      RETURNING
-        VALUE(rv_code) TYPE string.
-
-    "! Convenience formatter for Item Group code using predefined prefix and length.
-    "! @parameter iv_number | Raw numeric input
-    "! @parameter rv_code   | Formatted Item Group code
-    CLASS-METHODS format_item_grp_code
-      IMPORTING
-        iv_number      TYPE simple
-      RETURNING
-        VALUE(rv_code) TYPE string.
-
-    "! Convenience formatter for VAT code using predefined prefix and length.
-    "! @parameter iv_number | Raw numeric input
-    "! @parameter rv_code   | Formatted VAT code
-    CLASS-METHODS format_vat_code
-      IMPORTING
-        iv_number      TYPE simple
-      RETURNING
-        VALUE(rv_code) TYPE string.
-
-    "! Convenience formatter for Warehouse code using predefined prefix and length.
-    "! @parameter iv_number | Raw numeric input
-    "! @parameter rv_code   | Formatted Warehouse code
-    CLASS-METHODS format_warehouse_code
-      IMPORTING
-        iv_number      TYPE simple
-      RETURNING
-        VALUE(rv_code) TYPE string.
-
-  PROTECTED SECTION.
-  PRIVATE SECTION.
-
 ENDCLASS.
 
 CLASS zcl_merp_format_util IMPLEMENTATION.
@@ -113,41 +65,6 @@ CLASS zcl_merp_format_util IMPLEMENTATION.
       ELSE |{ iv_number }| ).
 
     rv_code = |{ iv_prefix }{ lv_padded }|.
-  ENDMETHOD.
-
-  METHOD format_bp_code.
-    rv_code = format_code(
-      iv_number       = iv_number
-      iv_prefix       = zif_merp_constants=>c_bp-prefix
-      iv_total_length = zif_merp_constants=>c_bp-length ).
-  ENDMETHOD.
-
-  METHOD format_item_code.
-    rv_code = format_code(
-      iv_number       = iv_number
-      iv_prefix       = zif_merp_constants=>c_item-prefix
-      iv_total_length = zif_merp_constants=>c_item-length ).
-  ENDMETHOD.
-
-  METHOD format_item_grp_code.
-    rv_code = format_code(
-      iv_number       = iv_number
-      iv_prefix       = zif_merp_constants=>c_ig-prefix
-      iv_total_length = zif_merp_constants=>c_ig-length ).
-  ENDMETHOD.
-
-  METHOD format_vat_code.
-    rv_code = format_code(
-      iv_number       = iv_number
-      iv_prefix       = zif_merp_constants=>c_vat-prefix
-      iv_total_length = zif_merp_constants=>c_vat-length ).
-  ENDMETHOD.
-
-  METHOD format_warehouse_code.
-    rv_code = format_code(
-      iv_number       = iv_number
-      iv_prefix       = zif_merp_constants=>c_wh-prefix
-      iv_total_length = zif_merp_constants=>c_wh-length ).
   ENDMETHOD.
 
 ENDCLASS.

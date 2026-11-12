@@ -101,6 +101,12 @@
     <T100>
      <SPRSL>E</SPRSL>
      <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>057</MSGNR>
+     <TEXT>Select Sales Order reference.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
      <MSGNR>100</MSGNR>
      <TEXT>Quantity must be greater than zero.</TEXT>
     </T100>
@@ -239,6 +245,48 @@
     <T100>
      <SPRSL>E</SPRSL>
      <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>123</MSGNR>
+     <TEXT>Business Partner &amp;1 is not a Customer.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>124</MSGNR>
+     <TEXT>Item &amp;1: nothing left to issue for the sales order.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>125</MSGNR>
+     <TEXT>Item &amp;1: quantity exceeds the open quantity &amp;2 of the sales order.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>126</MSGNR>
+     <TEXT>Item &amp;1: open SO amounts have changed, use ‘Fill Open Quantity’.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>127</MSGNR>
+     <TEXT>Posting Date cannot be before Sales Order date &amp;1.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>128</MSGNR>
+     <TEXT>Item &amp;1: the sales order item no longer exists.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>129</MSGNR>
+     <TEXT>Sales order &amp;1 belongs to company code &amp;2.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
      <MSGNR>130</MSGNR>
      <TEXT>Invalid document status.</TEXT>
     </T100>
@@ -283,6 +331,30 @@
      <ARBGB>ZMC_MERP_DOC</ARBGB>
      <MSGNR>137</MSGNR>
      <TEXT>Completion of document &amp;1 is not allowed.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>138</MSGNR>
+     <TEXT> Rejection of document &amp;1 is not allowed.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>139</MSGNR>
+     <TEXT>Goods issue for sales order &amp;1 is not allowed in its current status.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>140</MSGNR>
+     <TEXT>Stock of item &amp;1 in warehouse &amp;2 is locked by user &amp;3.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>141</MSGNR>
+     <TEXT>Document &amp;1 is being processed by another user, try again.</TEXT>
     </T100>
     <T100>
      <SPRSL>E</SPRSL>
@@ -337,6 +409,18 @@
      <ARBGB>ZMC_MERP_DOC</ARBGB>
      <MSGNR>200</MSGNR>
      <TEXT>Failed to generate Document number.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>300</MSGNR>
+     <TEXT>Goods receipt draft for purchase order &amp;1 created, see Goods Receipts.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>301</MSGNR>
+     <TEXT>Goods issue draft for sales order &amp;1 created, see Goods Issues.</TEXT>
     </T100>
    </T100>
   </asx:values>

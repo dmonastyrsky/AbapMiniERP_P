@@ -2,7 +2,7 @@
 @EndUserText.label: 'Business Partner Usage Dependencies'
 @Metadata.ignorePropagatedAnnotations: true
 
-// UsedAsSupplier: purchasing documents (PO, GR); UsedAsCustomer: sales documents (to be added)
+// UsedAsSupplier: purchasing documents (PO, GR); UsedAsCustomer: sales documents (SO, GI)
 
 define view entity ZMERP_I_BUS_PARTNER_USAGE
   as select from ZMERP_R_PURCHASEORDER
@@ -25,6 +25,30 @@ union all select from ZMERP_R_GOODSRECEIPT
   key cast( 'Goods Receipt' as zmerp_entity_name )      as UsedInEntity,
       cast( 'X' as abap_boolean preserving type )       as UsedAsSupplier,
       cast( ' ' as abap_boolean preserving type )       as UsedAsCustomer,
+      cast( 'X' as abap_boolean preserving type )       as IsDocument
+}
+where BusinessPartnerCode is not initial
+
+union all select from ZMERP_R_SALESORDER
+{
+  key BusinessPartnerCode                               as PartnerCode,
+  key DocumentUUID                                      as DocumentUUID,
+  key cast( bintohex( DocumentUUID ) as abap.char(40) ) as RefEntityKey,
+  key cast( 'Sales Order' as zmerp_entity_name )        as UsedInEntity,
+      cast( ' ' as abap_boolean preserving type )       as UsedAsSupplier,
+      cast( 'X' as abap_boolean preserving type )       as UsedAsCustomer,
+      cast( 'X' as abap_boolean preserving type )       as IsDocument
+}
+where BusinessPartnerCode is not initial
+
+union all select from ZMERP_R_GOODSISSUE
+{
+  key BusinessPartnerCode                               as PartnerCode,
+  key DocumentUUID                                      as DocumentUUID,
+  key cast( bintohex( DocumentUUID ) as abap.char(40) ) as RefEntityKey,
+  key cast( 'Goods Issue' as zmerp_entity_name )        as UsedInEntity,
+      cast( ' ' as abap_boolean preserving type )       as UsedAsSupplier,
+      cast( 'X' as abap_boolean preserving type )       as UsedAsCustomer,
       cast( 'X' as abap_boolean preserving type )       as IsDocument
 }
 where BusinessPartnerCode is not initial

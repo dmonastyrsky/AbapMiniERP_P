@@ -85,7 +85,7 @@ CLASS lhc_zmerp_r_item_group IMPLEMENTATION.
   ENDMETHOD.
 
   " --- Numbering ---
-  METHOD earlynumbering_create.
+    METHOD earlynumbering_create.
     IF entities IS INITIAL.
       RETURN.
     ENDIF.
@@ -102,7 +102,8 @@ CLASS lhc_zmerp_r_item_group IMPLEMENTATION.
     " Step 2: Bulk allocation via NRO utility with exception capture
     IF lv_needed_count > 0.
       TRY.
-          lt_codes = zcl_merp_num_range_util=>get_next_item_grp_codes_nro( iv_count = lv_needed_count ).
+          lt_codes = zcl_merp_num_range_util=>get_md_codes( is_meta  = zif_merp_constants=>c_ig
+                                                             iv_count = lv_needed_count ).
         CATCH cx_number_ranges INTO lx_nro_error.
           CLEAR lt_codes.
       ENDTRY.

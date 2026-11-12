@@ -23,16 +23,16 @@ define root view entity ZMERP_C_PURCHASEORDER
       CompanyCode,
 
       @Consumption.valueHelpDefinition: [{
-      entity: { name: 'ZMERP_I_WAREHOUSE_VH', element: 'WarehouseCode' },
-      additionalBinding: [{ localElement: 'CompanyCode', element: 'CompanyCode', usage: #FILTER_AND_RESULT }],
-      useForValidation: true
+       entity: { name: 'ZMERP_I_WAREHOUSE_VH', element: 'WarehouseCode' },
+       additionalBinding: [{ localElement: 'CompanyCode', element: 'CompanyCode', usage: #FILTER_AND_RESULT }],
+       useForValidation: true
       }]
       WarehouseCode,
 
-      @Consumption.valueHelpDefinition: [{ 
+      @Consumption.valueHelpDefinition: [{
         entity: { name: 'ZMERP_I_BUS_PARTNER_VH', element: 'PartnerCode' },
-        additionalBinding: [{ element: 'IsSupplier', localConstant: 'X', usage: #FILTER_AND_RESULT}],
-        useForValidation: true 
+        additionalBinding: [{ element: 'IsSupplier', localConstant: 'X', usage: #FILTER }],
+        useForValidation: true
       }]
       BusinessPartnerCode,
 

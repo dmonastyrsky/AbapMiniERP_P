@@ -32,6 +32,7 @@ authorization master ( global )
     { default function GetDefaultsForSetInDelivery; }
   action ( features : instance ) cancelDocument result [1] $self;
   action ( features : instance ) completeDocument result [1] $self;
+  action ( features : instance ) createGoodsReceipt result [1] entity ZMERP_R_GOODSRECEIPT;
 
   // API for goods receipts: not exposed in the projection
   action ( authorization : update ) setReceiptStatus parameter ZMERP_A_DOC_PO_RECEIPT_STATUS result [1] $self;

@@ -60,6 +60,13 @@ CLASS lhc_zmerp_r_purchaseorder DEFINITION INHERITING FROM cl_abap_behavior_hand
         keys   FOR ACTION PurchaseOrder~completeDocument
       RESULT   result.
 
+    "! Creates a goods receipt draft for the Purchase Order: the goods receipt takes over the order and its
+    "! open quantities exactly as when the order is selected in the goods receipt (deriveDocFromPurchaseOrder).
+    METHODS createGoodsReceipt FOR MODIFY
+      IMPORTING
+        keys   FOR ACTION PurchaseOrder~createGoodsReceipt
+      RESULT   result.
+
     "! Sets the receipt status (Approved / In Delivery / Completed) calculated by the goods receipt.
     "! API for other business objects, not exposed in the service.
     METHODS setReceiptStatus FOR MODIFY
@@ -141,7 +148,7 @@ CLASS lhc_zmerp_r_purchaseorder IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
-  METHOD get_instance_features.
+    METHOD get_instance_features.
 
     IF keys IS INITIAL.
       RETURN.
@@ -179,6 +186,8 @@ CLASS lhc_zmerp_r_purchaseorder IMPLEMENTATION.
           lv_cancel   = xsdbool( lv_active = abap_true
                              AND zcl_merp_doc_po_lifecycle=>can_cancel( header-Status ) = abap_true
                              AND NOT line_exists( lt_received[ DocumentUUID = header-DocumentUUID ] ) )
+          lv_receive  = xsdbool( lv_active = abap_true
+                             AND zcl_merp_doc_po_lifecycle=>can_receive_goods( header-Status ) = abap_true )
           lv_delete   = zcl_merp_doc_po_lifecycle=>can_delete( header-Status ) IN
       ( %tky                          = header-%tky
         %delete                       = COND #( WHEN lv_delete = abap_true
@@ -197,6 +206,9 @@ CLASS lhc_zmerp_r_purchaseorder IMPLEMENTATION.
                                                 THEN if_abap_behv=>fc-o-enabled
                                                 ELSE if_abap_behv=>fc-o-disabled )
         %action-cancelDocument        = COND #( WHEN lv_cancel = abap_true
+                                                THEN if_abap_behv=>fc-o-enabled
+                                                ELSE if_abap_behv=>fc-o-disabled )
+        %action-createGoodsReceipt    = COND #( WHEN lv_receive = abap_true
                                                 THEN if_abap_behv=>fc-o-enabled
                                                 ELSE if_abap_behv=>fc-o-disabled )
         " The document number carries the company prefix, so the company is fixed once it is assigned
@@ -560,6 +572,85 @@ CLASS lhc_zmerp_r_purchaseorder IMPLEMENTATION.
     result = VALUE #( FOR header IN lt_result ( %tky = header-%tky %param = header ) ).
   ENDMETHOD.
 
+  METHOD createGoodsReceipt.
+    DATA lt_receivable TYPE TABLE FOR READ RESULT zmerp_r_purchaseorder.
+
+    READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
+      ENTITY PurchaseOrder
+      FIELDS ( Status DocumentNumber )
+      WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_headers).
+
+    " Goods can be received only for 'Approved' and 'In Delivery' orders
+    " (the action is hidden otherwise; the check also covers EML callers)
+    LOOP AT lt_headers REFERENCE INTO DATA(lr_header).
+      IF zcl_merp_doc_po_lifecycle=>can_receive_goods( lr_header->Status ) = abap_true.
+        APPEND lr_header->* TO lt_receivable.
+      ELSE.
+        APPEND VALUE #( %tky        = lr_header->%tky
+                        %fail-cause = if_abap_behv=>cause-conflict ) TO failed-purchaseorder.
+        APPEND VALUE #( %tky                       = lr_header->%tky
+                        %msg                       = NEW zcx_merp_pur(
+                                                       textid   = zcx_merp_pur=>po_receipt_not_allowed
+                                                       severity = if_abap_behv_message=>severity-error
+                                                       attr1    = CONV #( lr_header->DocumentNumber ) )
+                        %action-createGoodsReceipt = if_abap_behv=>mk-on ) TO reported-purchaseorder.
+      ENDIF.
+    ENDLOOP.
+
+    IF lt_receivable IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    " The same path as selecting the order in a goods receipt: only the order reference is set,
+    " header fields and items (open quantities and amounts) are derived by the goods receipt itself
+    MODIFY ENTITIES OF zmerp_r_goodsreceipt
+      ENTITY GoodsReceipt
+      CREATE FIELDS ( PoReferenceUUID )
+      WITH VALUE #( FOR po IN lt_receivable
+                    ( %cid            = |{ po-DocumentUUID }|
+                      %is_draft       = if_abap_behv=>mk-on
+                      PoReferenceUUID = po-DocumentUUID ) )
+      MAPPED DATA(ls_gr_mapped)
+      FAILED DATA(ls_gr_failed)
+      REPORTED DATA(ls_gr_reported).
+
+    " New goods receipt drafts (the action result; an app with a route to goods receipts opens them)
+    IF ls_gr_mapped-goodsreceipt IS NOT INITIAL.
+      READ ENTITIES OF zmerp_r_goodsreceipt
+        ENTITY GoodsReceipt
+        ALL FIELDS
+        WITH VALUE #( FOR gr IN ls_gr_mapped-goodsreceipt ( %tky = gr-%tky ) )
+        RESULT DATA(lt_receipts).
+    ENDIF.
+
+    LOOP AT lt_receivable REFERENCE INTO lr_header.
+      ASSIGN ls_gr_mapped-goodsreceipt[ %cid = |{ lr_header->DocumentUUID }| ] TO FIELD-SYMBOL(<ls_gr>).
+
+      IF sy-subrc = 0.
+        APPEND VALUE #( %tky   = lr_header->%tky
+                        %param = CORRESPONDING #( VALUE #( lt_receipts[ %tky = <ls_gr>-%tky ] OPTIONAL ) ) ) TO result.
+
+        " The draft has no number yet (assigned on save): the user finds it in the goods receipt list
+        APPEND VALUE #( %tky = lr_header->%tky
+                        %msg = NEW zcx_merp_pur(
+                                 textid   = zcx_merp_pur=>goods_receipt_draft_created
+                                 severity = if_abap_behv_message=>severity-success
+                                 attr1    = CONV #( lr_header->DocumentNumber ) ) ) TO reported-purchaseorder.
+      ELSE.
+        " Messages of the goods receipt are returned on the purchase order
+        APPEND VALUE #( %tky        = lr_header->%tky
+                        %fail-cause = if_abap_behv=>cause-unspecific ) TO failed-purchaseorder.
+        LOOP AT ls_gr_reported-goodsreceipt REFERENCE INTO DATA(lr_gr_message)
+             WHERE %cid = |{ lr_header->DocumentUUID }|.
+          APPEND VALUE #( %tky                       = lr_header->%tky
+                          %msg                       = lr_gr_message->%msg
+                          %action-createGoodsReceipt = if_abap_behv=>mk-on ) TO reported-purchaseorder.
+        ENDLOOP.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
   METHOD setReceiptStatus.
     DATA lt_update  TYPE TABLE FOR UPDATE zmerp_r_purchaseorder.
     DATA lo_message TYPE REF TO zcx_merp_pur.
@@ -807,9 +898,7 @@ CLASS lhc_zmerp_r_purchaseorder IMPLEMENTATION.
 
   " --- Determinations on save ---
   METHOD assignDocumentNumber.
-    DATA lt_company_headers TYPE TABLE FOR READ RESULT zmerp_r_purchaseorder.
-    DATA lt_codes           TYPE string_table.
-    DATA lt_po_update       TYPE TABLE FOR UPDATE zmerp_r_purchaseorder.
+    DATA lt_po_update TYPE TABLE FOR UPDATE zmerp_r_purchaseorder.
 
     READ ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
       ENTITY PurchaseOrder
@@ -821,31 +910,17 @@ CLASS lhc_zmerp_r_purchaseorder IMPLEMENTATION.
     " (that case is reported by validateHeaderFields)
     DELETE lt_headers WHERE DocumentNumber IS NOT INITIAL OR CompanyCode IS INITIAL.
 
-    " Numbers are drawn per company (the company is the number range subobject)
-    LOOP AT lt_headers INTO DATA(ls_header)
-         GROUP BY ( company_code = ls_header-CompanyCode )
-         INTO DATA(lg_company).
+    " Numbers per company (the company is the number range subobject); a document left without a number
+    " by an NRO error is rejected by validateDocumentNumber
+    DATA(lt_numbers) = zcl_merp_num_range_util=>get_doc_numbers(
+      is_meta     = zif_merp_constants=>c_po
+      it_requests = VALUE #( FOR header IN lt_headers ( HeaderUUID  = header-DocumentUUID
+                                                        IsDraft     = header-%is_draft
+                                                        CompanyCode = header-CompanyCode ) ) ).
 
-      lt_company_headers = VALUE #( FOR member IN GROUP lg_company ( member ) ).
-
-      " An NRO error leaves the documents of this company without a number
-      TRY.
-          lt_codes = zcl_merp_num_range_util=>get_next_po_numbers_nro(
-            iv_company_code = lg_company-company_code
-            iv_count        = lines( lt_company_headers ) ).
-        CATCH cx_number_ranges.
-          CLEAR lt_codes.
-      ENDTRY.
-
-      " Numbers in the order of the documents; a document without a number is rejected by validateDocumentNumber
-      LOOP AT lt_company_headers REFERENCE INTO DATA(lr_header).
-        DATA(lv_code) = VALUE string( lt_codes[ sy-tabix ] OPTIONAL ).
-        IF lv_code IS NOT INITIAL.
-          APPEND VALUE #( %tky           = lr_header->%tky
-                          DocumentNumber = CONV #( lv_code ) ) TO lt_po_update.
-        ENDIF.
-      ENDLOOP.
-    ENDLOOP.
+    lt_po_update = VALUE #( FOR number IN lt_numbers ( %is_draft      = number-IsDraft
+                                                       DocumentUUID   = number-HeaderUUID
+                                                       DocumentNumber = number-DocumentNumber ) ).
 
     IF lt_po_update IS NOT INITIAL.
       MODIFY ENTITIES OF zmerp_r_purchaseorder IN LOCAL MODE
