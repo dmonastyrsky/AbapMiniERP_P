@@ -3,9 +3,9 @@
 [English](README.md) | [Deutsch](README.de.md) | [Українська](README.ua.md)
 
 [![SAP ABAP Cloud](https://img.shields.io/badge/SAP-ABAP%20Cloud-0FAAFF?style=flat-square&logo=sap)](https://www.sap.com)
-[![SAP RAP](https://img.shields.io/badge/Model-SAP%20RAP%20(Managed)-0073C6?style=flat-square)](https://help.sap.com)
+[![SAP RAP](https://img.shields.io/badge/Model-SAP%20RAP%20(Managed%20%2B%20Draft)-0073C6?style=flat-square)](https://help.sap.com)
 [![Clean Core](https://img.shields.io/badge/Architecture-Clean%20Core%20Compliant-green?style=flat-square)](#6-clean-core-prinzipien)
-[![Status](https://img.shields.io/badge/Status-Phase%202%20%7C%20Procurement%20%26%20Stock%20Implemented-brightgreen?style=flat-square)](#3-implementierungsstatus-und-roadmap)
+[![Status](https://img.shields.io/badge/Status-Procurement%20%7C%20Sales%20%7C%20Stock%20Implemented-brightgreen?style=flat-square)](#3-implementierungsstatus)
 
 **Version:** 1.0 (MVP)
 
@@ -13,111 +13,110 @@
 
 ## 1. Projektübersicht
 
-Mini ERP ist eine Demonstrations-ERP-Anwendung, die mit dem SAP ABAP Cloud-Programmiermodell und dem SAP RESTful Application Programming Model (RAP) in der SAP BTP ABAP-Umgebung entwickelt wurde.
+Mini-ERP ist eine Demo-ERP-Anwendung auf Basis von SAP ABAP Cloud und dem SAP RESTful Application Programming Model (RAP, managed mit Draft) in der SAP BTP ABAP Environment (Trial).
 
-Das Projekt implementiert ein vereinfachtes Einkaufs-, Lager- und Vertriebs-Domänenmodell und folgt dabei modernen SAP-Entwicklungspraktiken, einschließlich SAP Clean-Core-Prinzipien, RAP Business Objects, CDS View Entities, OData V4-Services und SAP Fiori Elements.
+Sie bildet eine vereinfachte, aber vollständige Prozesskette ab: Stammdaten → Einkauf (Bestellung → Wareneingang) → Bestand → Vertrieb (Kundenauftrag → Warenausgang). Das Verhalten folgt so nah wie möglich dem SAP-Standard (Einkauf, Vertrieb, Bestandsführung), vereinfacht.
 
-Die Anwendung dient als Portfolio-Projekt zur Demonstration einer cloudfähigen ABAP-Entwicklung, strikter Schichtentrennung und Best-Practice-Entwurfsmustern.
+Das Projekt ist ein Portfolio-Projekt für cloudfähige ABAP-Entwicklung: RAP Business Objects, CDS View Entities, OData-V4-Services und SAP Fiori Elements.
 
-Detaillierte technische Architektur- und Domänenmodell-Spezifikationen finden Sie in der [Architektur & Technisches Design](docs/Architecture.de.md).
+Details: [Architektur & Technisches Design](docs/Architecture.de.md).
 
 ---
 
 ## 2. Technologie-Stack
 
-- **Plattform:** SAP BTP ABAP Environment
+- **Plattform:** SAP BTP ABAP Environment (Trial)
 - **IDE:** Eclipse ADT (ABAP Development Tools)
-- **Programmiermodell:** SAP RESTful Application Programming Model (RAP)
-- **Datenmodellierung:** ABAP Core Data Services / CDS View Entities
-- **Persistenz:** Transparent Tables mit RAP Draft-Unterstützung
-- **Services:** OData V4 UI Services (`ZUI_MERP_O4`, `ZUI_MERP_PROCUREMENT_O4`, `ZUI_MERP_STOCK_O4`)
-- **UI-Framework:** SAP Fiori Elements
-- **Entwicklungsstandard:** SAP Clean Core / ABAP Cloud
+- **Programmiermodell:** SAP RAP, managed Business Objects mit Draft, strict mode
+- **Datenmodellierung:** CDS View Entities
+- **Persistenz:** Datenbanktabellen mit RAP-Draft-Tabellen
+- **Services:** OData V4 UI Services (`ZUI_MERP_O4`, `ZUI_MERP_PROCUREMENT_O4`, `ZUI_MERP_SALES_O4`, `ZUI_MERP_STOCK_O4`)
+- **UI:** SAP Fiori Elements
+- **Entwicklungsstandard:** ABAP Cloud / Clean Core
 
 ---
 
-## 3. Implementierungsstatus und Roadmap
+## 3. Implementierungsstatus
 
-Das Projekt ist in zwei Hauptphasen unterteilt.
+| Bereich | Inhalt | Status |
+|---|---|---|
+| Stammdaten | Buchungskreis, Lager, Geschäftspartner, Warengruppe, Artikel, MwSt.-Satz | Umgesetzt |
+| Einkauf | Bestellung, Wareneingang | Umgesetzt |
+| Bestandsführung | Bestandsjournal und -salden, Verfügbarkeitsprüfung, gleitender Durchschnittspreis, Bestandssperren, Bestands-App (nur Anzeige) | Umgesetzt |
+| Vertrieb | Kundenauftrag, Warenausgang | Umgesetzt |
+| Testdaten | Alle Daten löschen und Seed mit Belegen in jedem Status | Umgesetzt |
 
-### Phase 1: Stammdatenverwaltung (Master Data Management) – Abgeschlossen
-- **Company Code (Unternehmen):** Operative Organisationseinheiten mit Länder- und Währungseinstellungen (Manuelle Schlüsselvergabe).
-- **Warehouse (Lager):** Physische Lagerorte, die einem Unternehmen zugeordnet sind (Automatische Schlüsselvergabe).
-- **Business Partner (Geschäftspartner):** Kunden, Lieferanten oder kombinierte Partner (Automatische Schlüsselvergabe).
-- **Item Group (Produktgruppen):** Produktklassifizierung mit Standard-MwSt.-Satz für automatische Vererbung (Automatische Schlüsselvergabe).
-- **Item (Produkte):** Materielle Produkte und immaterielle Dienstleistungen (Automatische Schlüsselvergabe).
-- **VAT Rate (MwSt.-Sätze):** Zentrale Engine für die Konfiguration und Pflege von Steuersätzen (Automatische Schlüsselvergabe).
-
-### Phase 2: Transactional Engine & Inventory (Transaktions-Engine & Lagerhaltung) – Umgesetzt
-
-#### Procurement (Einkauf)
-- **Purchase Orders (Bestellung) — Umgesetzt:** Vollständiger Beschaffungsbeleg-Lebenszyklus (Neu, Genehmigt, In Lieferung, Abgeschlossen, Storniert) mit unternehmensbezogener sequentieller Belegnummerierung, interaktiver Fehlerbehandlung in Echtzeit, Duplikatprüfung für Belegzeilen sowie automatisierter Berechnung von Positions- und Belegsummen.
-- **Goods Receipts (Wareneingang) — Umgesetzt:** Vollständige Wareneingangsbearbeitung zu Bestellungen mit automatischer Bestandsbewegungsschreibung (`with additional save`), Fortschrittsverfolgung der Bestellung und Stornierungs-/Rückbuchungsfunktionen.
-
-#### Inventory & Stock Management (Bestandsführung) — Umgesetzt
-- **Stock Balances & Movements — Umgesetzt:** Echtzeit-Bestandssalden (`ZMERP_R_STOCK_BALANCE`) und detailliertes Bewegungshistorie-Journal (`ZMERP_STOCK_MOV`) mit Unternehmen, Lager, Artikel, Menge und Bewertung in Unternehmenswährung.
-
-#### Sales (Vertrieb)
-- **Sales Orders (Kundenauftrag) — Geplant:** Künftige Implementierung für den Vertriebsbelegs-Lebenszyklus.
-- **Goods Issues (Warenausgang) — Geplant:** Künftige Implementierung zur Erfassung von Warenausgangslieferungen.
+**Ideen, nicht begonnen:** Umlagerung zwischen Lagern (wie SAP-Bewegungsart 311); automatischer Preisvorschlag in Belegen.
+**Zurückgestellt:** Währungsumrechnung; Abschluss einzelner Auftragspositionen; Bestand zu einem Stichtag / Periodenabschluss.
 
 ---
 
-## 4. Wichtigste Architekturmerkmale
+## 4. Wichtigste Merkmale
 
-### Hybride Nummernkreis-Engine (`ZCL_MERP_NUM_RANGE_UTIL`)
-- **Primärschlüsselzuweisung:** Standard SAP Number Range Object (NRO) API über `cl_numberrange_runtime`.
-- **DB Max Fallback:** Dynamischer Open-SQL-Fallback, der sowohl aktive Tabellen als auch Entwurfstabellen (`nmax`) scannt, um Schlüsselkollisionen während paralleler Benutzer-Draft-Sitzungen zu verhindern.
-- **NRO-Synchronisation:** Automatische Intervallanpassung über `cl_numberrange_intervals` nach der Ausführung des Initial-Setups (Seed).
+### Nummernvergabe
+- Stammdatenschlüssel kommen beim Anlegen aus Nummernkreisobjekten (`WH001`, `V001`, `00001`); der Buchungskreis wird manuell erfasst.
+- Belegnummern laufen pro Belegart und Buchungskreis mit Firmenpräfix (`DE00000001`) und werden beim ersten Sichern vergeben. Entwürfe haben keine Nummer.
+- Kein Fallback: schlägt der Nummernkreis fehl, wird nichts gesichert (ein früherer Fallback über das Datenbankmaximum erzeugte doppelte Nummern und wurde entfernt).
+- Ein neuer Buchungskreis erhält automatisch Intervalle für alle Belegarten.
 
-### Automatische Steuer- und Wertererbung (`ZCL_MERP_MD_UTIL`)
-- **Hierarchische Ermittlung der MwSt.:** Der Artikel-Steuercode vererbt sich aus `Item Master` -> `Item Group Default` -> `Manual Fallback`.
+### Stammdaten-Integrität
+- Ein verwendeter Datensatz kann nicht gelöscht werden; die Meldung nennt jedes verwendende Objekt.
+- Kritische Felder werden schreibgeschützt, sobald der Datensatz in Belegen verwendet wird (z. B. Währung und Präfix des Buchungskreises, Buchungskreis des Lagers, Artikeltyp und Basismengeneinheit, MwSt.-Prozentsatz, eine verwendete Partnerrolle).
+- Sperren statt Löschen: gesperrte Datensätze sind in Wertehilfen ausgeblendet und werden nicht vorgeschlagen; bestehende Belege bleiben gültig, änderbar und buchbar.
+- SAP-Stammdaten (Währung, Land, Mengeneinheit) werden in der Wertehilfe und im Backend geprüft.
 
-### Relationale Integrität & Verwendungsprüfungen
-- **Bulk-Precheck-Muster:** Implementiert in RAP Behavior Handlern (`precheck_delete`) über alle Stammdaten-BOs hinweg, um das Löschen verwendeter Entitäten zu verhindern.
-- **Bulk-SQL-Optimierung:** Fragt dedizierte CDS Usage Views (`ZMERP_I_<ENTITY>_USAGE`) mit bereinigten Schlüsselsets ab, um den $N+1$-Abfrage-Overhead zu eliminieren.
+### Belege
+- Positionsbeträge (netto, MwSt., brutto) und Kopfsummen werden bei jeder Änderung neu berechnet; Preise sind Nettopreise.
+- Feldbezogene Meldungen verschwinden, sobald das Feld korrigiert ist; doppelte Artikel werden abgelehnt.
+- Bis zur Währungsumrechnung ist nur die Buchungskreiswährung erlaubt; das Buchungsdatum darf nicht in der Zukunft liegen.
 
-### Operationales Status-Management
-- **Soft Blocking:** Stammdatensätze verwenden ein `IsBlocked`-Flag, um die historische Datenintegrität anstelle von hartem Löschen zu wahren.
-- **Value Help-Filterung:** Alle operativen Value Help Views (`ZMERP_I_<ENTITY>_VH`) erzwingen `WHERE IsBlocked = ''`, um die Auswahl inaktiver Datensätze in nachgelagerten Belegen zu verhindern.
+### Auftrag → Folgebeleg
+- Wareneingang / Warenausgang entsteht entweder aus dem Auftrag (Aktion „Goods Receipt“ / „Goods Issue“, wie SAP „Anlegen mit Bezug“) oder durch Auswahl des Auftrags im Folgebeleg.
+- Positionen werden aus den offenen Mengen gefüllt; wird die gesamte offene Menge übernommen, werden auch die offenen Beträge übernommen, sodass der letzte Eingang / Ausgang die Cents genau schließt.
+- Keine Über- oder Mehrlieferung; der Auftragsstatus (in Lieferung / in Bearbeitung / abgeschlossen) folgt automatisch den gebuchten Belegen.
 
-### Bestellungs-Engine & Automatisierte Berechnungen
-- **Belegberechnungs-Engine (`ZCL_MERP_DOC_CALC`):** Automatisierte Echtzeit-Berechnung finanzieller Positionsbeträge bei Änderungen von Menge, Preis oder Steuersatz sowie sofortige Aggregation der Beleg-Gesamtsummen auf Kopfebene.
-- **Interaktive Fehlerbehandlung:** Sofortiges Löschen und Hervorheben von Validierungsmeldungen direkt während der Benutzer Felder ausfüllt oder korrigiert.
-- **Duplikatserkennung:** Automatische Erkennung und Blockierung doppelt erfasster Produkte innerhalb derselben Bestellung.
+### Bestandsführung
+- Bestandsbewegungen werden in der Sicherungsphase der Buchung geschrieben; Salden werden aus dem Journal berechnet.
+- Wareneingänge erhöhen den Bestand mit ihrem Nettobetrag; Warenausgänge werden wie in SAP zum gleitenden Durchschnittspreis bewertet.
+- Ein Warenausgang wird nur bei verfügbarem Bestand gebucht; die Rücknahme eines Wareneingangs darf den Bestand nicht negativ machen.
+- Buchen und Zurücknehmen sperren den Auftrag und den Bestand seiner Artikel, parallele Buchungen können nicht überbuchen.
+- Dienstleistungen erzeugen keine Bestandsbewegungen.
 
-### Automatisiertes Initial-Setup (`ZCL_MERP_INITIAL_SETUP`)
-- Console-Runner-Klasse, die das Interface `IF_OO_ADT_CLASSRUN` implementiert.
-- Füllt Testdaten über alle Stammdaten-Entitäten hinweg auf.
-- Löscht während der Initialisierung sowohl aktive Tabellen als auch RAP-Draft-Tabellen.
-- Synchronisiert automatisch die NRO-Sequenzstufen, um die generierten Datensätze widerzuspiegeln.
-
----
-
-## 5. Service Bindings & UI Preview
-
-Die Anwendung stellt entkoppelte OData V4-Services für die Nutzung durch SAP Fiori Elements bereit:
-- **Stammdaten-Service (`ZUI_MERP_O4`):** Stellt alle Stammdaten-Entitäten bereit (Unternehmen, Lager, Geschäftspartner, Produktgruppen, Produkte, MwSt.-Sätze).
-- **Einkaufs-Service (`ZUI_MERP_PROCUREMENT_O4`):** Stellt transaktionale Einkaufs-Entitäten bereit (Bestellköpfe, Wareneingänge und Positionen).
-- **Bestands-Service (`ZUI_MERP_STOCK_O4`):** Stellt schreibgeschützte Bestandssalden und Bestandsbewegungshistorien bereit.
+### Testdaten
+- `ZCL_MERP_INITIAL_SETUP` (Ausführung mit F9) löscht alle Daten und legt Stammdaten sowie Einkaufs- und Vertriebsbelege in jedem Status an, einschließlich Rundungs- und Durchschnittspreisfällen.
 
 ---
 
-## 6. Clean Core-Prinzipien
+## 5. Services & UI-Vorschau
 
-- **Strikter ABAP Cloud-Scope:** Keine Verwendung von veralteten ABAP-Anweisungen oder nicht freigegebenen SAP-Standard-APIs.
-- **RAP Draft-Funktionen:** Integrierte Statusbehandlung für transaktionale, zustandslose HTTP-Kommunikation.
-- **Automatisierte Auditierung:** Einheitliche Befüllung von Audit-Feldern (`CREATED_BY`, `CREATED_AT`, `LAST_CHANGED_AT`, etc.).
+Ein OData-V4-Service pro Bereich:
+- **Stammdaten (`ZUI_MERP_O4`):** Buchungskreis, Lager, Geschäftspartner, Warengruppe, Artikel, MwSt.-Satz.
+- **Einkauf (`ZUI_MERP_PROCUREMENT_O4`):** Bestellungen, Wareneingänge und ihre Positionen (plus referenzierte Stammdaten). Zusätzlich über ein Communication Scenario veröffentlicht.
+- **Vertrieb (`ZUI_MERP_SALES_O4`):** Kundenaufträge, Warenausgänge und ihre Positionen (plus referenzierte Stammdaten).
+- **Bestand (`ZUI_MERP_STOCK_O4`):** Bestandssalden und Bestandsbewegungen, nur Anzeige.
+
+---
+
+## 6. Clean-Core-Prinzipien
+
+- **Striktes ABAP Cloud:** nur freigegebene SAP-APIs und -Objekte.
+- **RAP Draft:** integrierte Zustandsverwaltung für zustandslose HTTP-Kommunikation; Standard-Draft-Sperren.
+- **Verwaltungsdaten:** `CREATED_BY`, `CREATED_AT`, `LOCAL_LAST_CHANGED_BY`, `LOCAL_LAST_CHANGED_AT`, `LAST_CHANGED_AT` werden vom Framework für alle Datensätze gefüllt und dienen auch der optimistischen Sperre (ETag).
 
 ---
 
 ## 7. Einrichtung und Ausführung
 
-1. Importieren Sie das Repository über **abapGit** in Eclipse ADT in Ihre SAP BTP ABAP-Umgebung.
-2. Aktivieren Sie CDS View Entities, Behavior Definitions und Service Bindings in hierarchischer Reihenfolge.
-3. Öffnen Sie die Service Bindings (`ZUI_MERP_O4`, `ZUI_MERP_PROCUREMENT_O4`, `ZUI_MERP_STOCK_O4`) und klicken Sie jeweils auf **Publish** (oder **Unpublish / Publish**), um die lokalen OData V4-Endpunkte zu registrieren.
-4. Führen Sie die Klasse `ZCL_MERP_INITIAL_SETUP` in Eclipse ADT (`F9`) aus, um die Initialdaten zu laden und die Nummernkreise zu synchronisieren.
-5. Testen Sie die Anwendungen über die Fiori Elements-Vorschau in einem der Service-Binding-Editoren.
+1. Repository mit **abapGit** in Eclipse ADT in die SAP BTP ABAP Environment importieren.
+2. Objekte aktivieren (Dictionary, CDS Views, Behavior Definitions, Services).
+3. Service Bindings `ZUI_MERP_O4`, `ZUI_MERP_PROCUREMENT_O4`, `ZUI_MERP_SALES_O4`, `ZUI_MERP_STOCK_O4` öffnen und **Publish** (oder **Unpublish / Publish**) klicken.
+4. Klasse `ZCL_MERP_INITIAL_SETUP` in Eclipse ADT ausführen (`F9`): löscht alle Daten und legt Stammdaten und Belege an. Jederzeit erneut ausführbar, um das System zurückzusetzen.
+5. Apps über die Fiori-Elements-Vorschau in den Service-Binding-Editoren öffnen. Demo-Buchungskreis: **3000**.
+
+---
+
+## Lizenz
+MIT, siehe [LICENSE](LICENSE).
 
 ---
 

@@ -3,9 +3,9 @@
 [English](README.md) | [Deutsch](README.de.md) | [Українська](README.ua.md)
 
 [![SAP ABAP Cloud](https://img.shields.io/badge/SAP-ABAP%20Cloud-0FAAFF?style=flat-square&logo=sap)](https://www.sap.com)
-[![SAP RAP](https://img.shields.io/badge/Model-SAP%20RAP%20(Managed)-0073C6?style=flat-square)](https://help.sap.com)
+[![SAP RAP](https://img.shields.io/badge/Model-SAP%20RAP%20(Managed%20%2B%20Draft)-0073C6?style=flat-square)](https://help.sap.com)
 [![Clean Core](https://img.shields.io/badge/Architecture-Clean%20Core%20Compliant-green?style=flat-square)](#6-clean-core-principles)
-[![Status](https://img.shields.io/badge/Status-Phase%202%20%7C%20Procurement%20%26%20Stock%20Implemented-brightgreen?style=flat-square)](#3-implementation-status--roadmap)
+[![Status](https://img.shields.io/badge/Status-Procurement%20%7C%20Sales%20%7C%20Stock%20Implemented-brightgreen?style=flat-square)](#3-implementation-status)
 
 **Version:** 1.0 (MVP)
 
@@ -13,113 +13,112 @@
 
 ## 1. Project Overview
 
-Mini ERP is a demonstration ERP application developed using the SAP ABAP Cloud programming model and the SAP RESTful Application Programming Model (RAP) on SAP BTP ABAP Environment.
+Mini ERP is a demonstration ERP application built with SAP ABAP Cloud and the SAP RESTful Application Programming Model (RAP, managed with draft) on the SAP BTP ABAP Environment (trial).
 
-The project implements a simplified procurement, inventory, and sales domain model while following modern SAP development practices, including SAP Clean Core principles, RAP Business Objects, CDS View Entities, OData V4 services, and SAP Fiori Elements.
+It covers a simplified but complete business chain: master data → purchasing (purchase order → goods receipt) → inventory → sales (sales order → goods issue). The behaviour follows the SAP standard (purchasing, sales, inventory management) as closely as possible, in simplified form.
 
-The application serves as a portfolio project demonstrating cloud-ready ABAP development, strict layer separation, and enterprise design patterns.
+The project is a portfolio piece showing cloud-ready ABAP development: RAP business objects, CDS view entities, OData V4 services and SAP Fiori elements.
 
-Detailed technical architecture and domain model specifications are available in the [Architecture & Technical Design Documentation](docs/Architecture.md).
+Details: [Architecture & Technical Design](docs/Architecture.md).
 
 ---
 
 ## 2. Technology Stack
 
-- **Platform:** SAP BTP ABAP Environment
+- **Platform:** SAP BTP ABAP Environment (trial)
 - **IDE:** Eclipse ADT (ABAP Development Tools)
-- **Programming Model:** SAP RESTful Application Programming Model (RAP)
-- **Data Modeling:** ABAP Core Data Services (CDS View Entities)
-- **Persistence:** Transparent Tables with RAP Draft Support
-- **Services:** OData V4 UI Services (`ZUI_MERP_O4`, `ZUI_MERP_PROCUREMENT_O4`, `ZUI_MERP_STOCK_O4`)
-- **UI Framework:** SAP Fiori Elements
-- **Development Standard:** SAP Clean Core / ABAP Cloud
+- **Programming model:** SAP RAP, managed business objects with draft, strict mode
+- **Data modelling:** CDS view entities
+- **Persistence:** database tables with RAP draft tables
+- **Services:** OData V4 UI services (`ZUI_MERP_O4`, `ZUI_MERP_PROCUREMENT_O4`, `ZUI_MERP_SALES_O4`, `ZUI_MERP_STOCK_O4`)
+- **UI:** SAP Fiori elements
+- **Development standard:** ABAP Cloud / Clean Core
 
 ---
 
-## 3. Implementation Status & Roadmap
+## 3. Implementation Status
 
-The project is structured into two main phases.
+| Area | Content | Status |
+|---|---|---|
+| Master data | Company Code, Warehouse, Business Partner, Item Group, Item, VAT Rate | Implemented |
+| Purchasing | Purchase Order, Goods Receipt | Implemented |
+| Inventory | Stock journal and balances, availability check, moving average cost, stock locks, read-only stock app | Implemented |
+| Sales | Sales Order, Goods Issue | Implemented |
+| Test data | Clear all data and seed with documents in every status | Implemented |
 
-### Phase 1: Master Data Management (Completed)
-- **Company Code:** Operational organizations with country and currency configuration (Manual Keying).
-- **Warehouse:** Storage locations assigned to a specific Company Code (Auto-generated Key).
-- **Business Partner:** Customers, suppliers, or entities combining both roles (Auto-generated Key).
-- **Item Group:** Product classifications with default tax configurations (Auto-generated Key).
-- **Item:** Tangible products and intangible services (Auto-generated Key).
-- **VAT Rate:** Central engine for tax percentage maintenance (Auto-generated Key).
-
-### Phase 2: Transactional Engine & Inventory (Implemented)
-
-#### Procurement (Einkauf)
-- **Purchase Orders (Bestellung) — Implemented:** Complete procurement document lifecycle (New, Approved, In Delivery, Completed, Cancelled) featuring company-scoped sequential document numbering, real-time UI message handling, item duplicate checks, and automated calculation of line amounts and document header totals.
-- **Goods Receipts (Wareneingang) — Implemented:** Full goods receipt processing against Purchase Orders with automatic inventory movement posting (`with additional save`), PO receipt progress tracking, and unpost/cancel capabilities.
-
-#### Inventory & Stock Management (Bestandsführung) — Implemented
-- **Stock Balances & Movements — Implemented:** Real-time aggregated stock balances (`ZMERP_R_STOCK_BALANCE`) and detailed movement history journal (`ZMERP_STOCK_MOV`) capturing company, warehouse, item, quantity, and valuation in company currency.
-
-#### Sales (Vertrieb)
-- **Sales Orders (Kundenauftrag) — Planned:** Future implementation for customer sales document lifecycle.
-- **Goods Issues (Warenausgang) — Planned:** Future implementation for logging outbound stock deliveries.
+**Ideas, not started:** stock transfer between warehouses (like SAP movement type 311); automatic price proposal in documents.
+**Deferred:** currency conversion; closing a single order line; stock on a date / period closing.
 
 ---
 
-## 4. Key Architectural Features
+## 4. Key Features
 
-### Hybrid Number Range Engine (`ZCL_MERP_NUM_RANGE_UTIL`)
-- **Primary Key Allocation:** Standard SAP Number Range Object (NRO) API via `cl_numberrange_runtime`.
-- **DB Max Fallback:** Dynamic OSQL fallback scanning both Active and Draft tables (`nmax`) to prevent key collisions during parallel user draft sessions.
-- **NRO Synchronization:** Automated interval leveling via `cl_numberrange_intervals` after seed execution.
+### Numbering
+- Master data codes are drawn from number range objects when a record is created (`WH001`, `V001`, `00001`); the company code is entered manually.
+- Document numbers run per document type and company, with the company prefix (`DE00000001`), and are assigned on the first save. Drafts have no number.
+- No fallback: if the number range fails, nothing is saved (an earlier database-maximum fallback produced duplicate numbers and was removed).
+- A new company automatically gets number intervals for all document types.
 
-### Automated Tax & Value Inheritance (`ZCL_MERP_MD_UTIL`)
-- **Hierarchical VAT Determination:** Item VAT Code inherits from `Item Master` -> `Item Group Default` -> `Manual Fallback`.
+### Master Data Integrity
+- A record used anywhere cannot be deleted; the message names every using object.
+- Critical fields become read-only once a record is used in documents (e.g. company currency and prefix, warehouse company, item type and base unit, VAT percentage, a partner role in use).
+- Blocking instead of deleting: blocked records are hidden in value helps and are not proposed as defaults; existing documents that reference them stay valid, editable and postable.
+- SAP master data (currency, country, unit of measure) is checked in the value help and in the backend.
 
-### Relational Integrity & Usage Prechecks
-- **Bulk Precheck Pattern:** Implemented in RAP Behavior Handlers (`precheck_delete`) across all Master Data BOs to prevent deletion of in-use entities.
-- **Bulk SQL Optimization:** Queries dedicated CDS Usage Views (`ZMERP_I_<ENTITY>_USAGE`) with deduplicated key sets to eliminate $N+1$ query overhead.
+### Documents
+- Line amounts (net, VAT, gross) and header totals are recalculated on every change; prices are net.
+- Field-level validation messages disappear as soon as the field is corrected; duplicate items are rejected.
+- Only the company currency is allowed until currency conversion exists; posting date may not lie in the future.
 
-### Operational Status Governance
-- **Soft Blocking:** Master Data records use an `IsBlocked` flag to preserve historical data integrity instead of hard deletion.
-- **Value Help Filtering:** All operational Value Help Views (`ZMERP_I_<ENTITY>_VH`) enforce `WHERE IsBlocked = ''` to prevent selection of inactive records in downstream documents.
+### Order → Follow-up Document
+- A goods receipt / goods issue is created either from the order (action "Goods Receipt" / "Goods Issue", as SAP "create with reference") or by selecting the order in the follow-up document.
+- Lines are filled from the open quantities; when the full open quantity is taken, the remaining open amounts are taken too, so the last receipt or issue closes the cents exactly.
+- No over-delivery or over-issue; the order status (in delivery / in process / completed) follows the posted documents automatically.
 
-### Purchase Order Engine & Automated Calculations
-- **Document Calculation Engine (`ZCL_MERP_DOC_CALC`):** Automated, real-time calculation of item line amounts (Net, VAT, Gross) upon Quantity, Price, or VAT Code changes, alongside instant header totals aggregation.
-- **Interactive Error Handling:** Instant clearing and field-level highlighting of validation messages directly as the user inputs data.
-- **Duplicate Line Prevention:** Automatic detection and blocking of duplicate product lines within the same Purchase Order.
+### Inventory
+- Stock movements are written in the save phase of posting; balances are calculated from the journal.
+- Goods receipts add stock at their net amount; goods issues are valued at the moving average cost, as in SAP.
+- A goods issue is posted only if the stock is available; unposting a goods receipt may not make the stock negative.
+- Posting and unposting lock the order and the stock of its items, so parallel postings cannot overbook.
+- Services create no stock movements.
 
-### Automated Initial Setup (`ZCL_MERP_INITIAL_SETUP`)
-- Console runner implementing `IF_OO_ADT_CLASSRUN`.
-- Populates seed data across all Master Data entities.
-- Clears both Active and RAP Draft tables during initialization.
-- Automatically syncs NRO sequence levels to reflect seeded records.
+### Test Data
+- `ZCL_MERP_INITIAL_SETUP` (run with F9) clears all data and creates master data plus purchasing and sales documents covering every status, including rounding and moving-average cases.
 
 ---
 
-## 5. Service Bindings & UI Preview
+## 5. Services & UI Preview
 
-The application exposes decoupled OData V4 services for SAP Fiori Elements consumption:
-- **Master Data Service (`ZUI_MERP_O4`):** Exposes all Master Data entities (Company Code, Warehouse, Business Partner, Item Group, Item, VAT Rate).
-- **Procurement Service (`ZUI_MERP_PROCUREMENT_O4`):** Exposes transactional Procurement entities (Purchase Orders, Goods Receipts, and Line Items).
-- **Stock Service (`ZUI_MERP_STOCK_O4`):** Exposes read-only inventory balances and stock movement journals.
+One OData V4 service per area:
+- **Master data (`ZUI_MERP_O4`):** Company Code, Warehouse, Business Partner, Item Group, Item, VAT Rate.
+- **Purchasing (`ZUI_MERP_PROCUREMENT_O4`):** Purchase Orders, Goods Receipts and their lines (plus the master data they reference). Published also via a communication scenario.
+- **Sales (`ZUI_MERP_SALES_O4`):** Sales Orders, Goods Issues and their lines (plus the master data they reference).
+- **Stock (`ZUI_MERP_STOCK_O4`):** read-only stock balances and stock movements.
 
 ---
 
 ## 6. Clean Core Principles
 
-- **Strict ABAP Cloud Scope:** Zero usage of deprecated ABAP statements or unreleased SAP standard APIs.
-- **RAP Draft Capabilities:** Built-in state handling for transactional stateless HTTP communication.
-- **Automated Auditing:** Unified population of audit fields (`CREATED_BY`, `CREATED_AT`, `LAST_CHANGED_AT`, etc.).
+- **Strict ABAP Cloud:** released SAP APIs and objects only.
+- **RAP draft:** built-in state handling for stateless HTTP communication; standard draft locking.
+- **Administrative data:** `CREATED_BY`, `CREATED_AT`, `LOCAL_LAST_CHANGED_BY`, `LOCAL_LAST_CHANGED_AT`, `LAST_CHANGED_AT` are filled by the framework for all records; they also drive optimistic locking (ETag).
 
 ---
 
 ## 7. Setup & Execution
 
-1. Import the repository into your SAP BTP ABAP Environment using **abapGit** in Eclipse ADT.
-2. Activate CDS View Entities, Behavior Definitions, and Service Bindings in hierarchical order.
-3. Open Service Bindings (`ZUI_MERP_O4`, `ZUI_MERP_PROCUREMENT_O4`, `ZUI_MERP_STOCK_O4`), then click **Publish** (or **Unpublish / Publish**) to register the local OData V4 endpoints.
-4. Run class `ZCL_MERP_INITIAL_SETUP` in Eclipse ADT (`F9`) to populate seed data and synchronize Number Ranges.
-5. Preview applications via Fiori Elements Preview in either Service Binding editor.
+1. Import the repository into your SAP BTP ABAP Environment with **abapGit** in Eclipse ADT.
+2. Activate the objects (dictionary, CDS views, behavior definitions, services).
+3. Open the service bindings `ZUI_MERP_O4`, `ZUI_MERP_PROCUREMENT_O4`, `ZUI_MERP_SALES_O4`, `ZUI_MERP_STOCK_O4` and click **Publish** (or **Unpublish / Publish**).
+4. Run class `ZCL_MERP_INITIAL_SETUP` in Eclipse ADT (`F9`): it clears all data and creates master data and documents. It can be run again at any time to reset the system.
+5. Open the apps via the Fiori elements preview in the service binding editors. Demo company: **3000**.
+
+---
+
+## License
+MIT, see [LICENSE](LICENSE).
 
 ---
 
 ## 📄 Related Documentation
-- 📘 [Architecture & Technical Design Specifications](docs/Architecture.md)
+- 📘 [Architecture & Technical Design](docs/Architecture.md)
