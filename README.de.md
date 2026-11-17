@@ -15,7 +15,7 @@
 
 Mini-ERP ist eine Demo-ERP-Anwendung auf Basis von SAP ABAP Cloud und dem SAP RESTful Application Programming Model (RAP, managed mit Draft) in der SAP BTP ABAP Environment (Trial).
 
-Sie bildet eine vereinfachte, aber vollständige Prozesskette ab: Stammdaten → Einkauf (Bestellung → Wareneingang) → Bestand → Vertrieb (Kundenauftrag → Warenausgang). Das Verhalten folgt so nah wie möglich dem SAP-Standard (Einkauf, Vertrieb, Bestandsführung), vereinfacht.
+Sie bildet eine vereinfachte, aber vollständige Prozesskette ab: Stammdaten → Einkauf (Bestellung → Wareneingang) → Bestand (inkl. Umlagerungen zwischen Lagern) → Vertrieb (Kundenauftrag → Warenausgang). Das Verhalten folgt so nah wie möglich dem SAP-Standard (Einkauf, Vertrieb, Bestandsführung), vereinfacht.
 
 Das Projekt ist ein Portfolio-Projekt für cloudfähige ABAP-Entwicklung: RAP Business Objects, CDS View Entities, OData-V4-Services und SAP Fiori Elements.
 
@@ -42,12 +42,12 @@ Details: [Architektur & Technisches Design](docs/Architecture.de.md).
 |---|---|---|
 | Stammdaten | Buchungskreis, Lager, Geschäftspartner, Warengruppe, Artikel, MwSt.-Satz | Umgesetzt |
 | Einkauf | Bestellung, Wareneingang | Umgesetzt |
-| Bestandsführung | Bestandsjournal und -salden, Verfügbarkeitsprüfung, gleitender Durchschnittspreis, Bestandssperren, Bestands-App (nur Anzeige) | Umgesetzt |
+| Bestandsführung | Bestandsjournal und -salden, Verfügbarkeitsprüfung, gleitender Durchschnittspreis, Bestandssperren, Umlagerung zwischen Lagern, Bestands-App | Umgesetzt |
 | Vertrieb | Kundenauftrag, Warenausgang | Umgesetzt |
 | Testdaten | Alle Daten löschen und Seed mit Belegen in jedem Status | Umgesetzt |
 
-**Ideen, nicht begonnen:** Umlagerung zwischen Lagern (wie SAP-Bewegungsart 311); automatischer Preisvorschlag in Belegen.
-**Zurückgestellt:** Währungsumrechnung; Abschluss einzelner Auftragspositionen; Bestand zu einem Stichtag / Periodenabschluss.
+**Ideen, nicht begonnen:** automatischer Preisvorschlag in Belegen.
+**Zurückgestellt:** Währungsumrechnung; Abschluss einzelner Auftragspositionen; Bestand zu einem Stichtag / Periodenabschluss; änderbare Lager in Positionen; weitere Bestandsbelege (Inventur, Verschrottung).
 
 ---
 
@@ -67,7 +67,8 @@ Details: [Architektur & Technisches Design](docs/Architecture.de.md).
 
 ### Belege
 - Positionsbeträge (netto, MwSt., brutto) und Kopfsummen werden bei jeder Änderung neu berechnet; Preise sind Nettopreise.
-- Feldbezogene Meldungen verschwinden, sobald das Feld korrigiert ist; doppelte Artikel werden abgelehnt.
+- Feldbezogene Meldungen verschwinden, sobald das Feld korrigiert ist; doppelte Artikel werden abgelehnt (erneut geprüft, wenn eine Position gelöscht wird).
+- Jede Position trägt das Lager, eine schreibgeschützte Kopie des Kopflagers (wie der Lagerort einer SAP-Position); Bestandsprüfungen und Buchungen verwenden das Lager der Position.
 - Bis zur Währungsumrechnung ist nur die Buchungskreiswährung erlaubt; das Buchungsdatum darf nicht in der Zukunft liegen.
 
 ### Auftrag → Folgebeleg
@@ -82,8 +83,13 @@ Details: [Architektur & Technisches Design](docs/Architecture.de.md).
 - Buchen und Zurücknehmen sperren den Auftrag und den Bestand seiner Artikel, parallele Buchungen können nicht überbuchen.
 - Dienstleistungen erzeugen keine Bestandsbewegungen.
 
+### Umlagerung
+- Bewegt Produkte zwischen zwei Lagern eines Buchungskreises, wie SAP-Bewegungsart 301: ein Lager übernimmt die Rolle des Werks. (Nicht 311, da es keine Lagerorte gibt.)
+- Die Buchung entnimmt die Ware zum gleitenden Durchschnittspreis des abgebenden Lagers und bucht denselben Wert im empfangenden Lager zu – dessen Durchschnittspreis ändert sich.
+- Die Verfügbarkeit wird im abgebenden Lager geprüft; die Rücknahme darf das empfangende Lager nicht negativ machen; beim Buchen werden beide Lager gesperrt.
+
 ### Testdaten
-- `ZCL_MERP_INITIAL_SETUP` (Ausführung mit F9) löscht alle Daten und legt Stammdaten sowie Einkaufs- und Vertriebsbelege in jedem Status an, einschließlich Rundungs- und Durchschnittspreisfällen.
+- `ZCL_MERP_INITIAL_SETUP` (Ausführung mit F9) löscht alle Daten und legt Stammdaten sowie Einkaufs-, Vertriebs- und Umlagerungsbelege in jedem Status an, einschließlich Rundungs- und Durchschnittspreisfällen.
 
 ---
 
@@ -93,7 +99,7 @@ Ein OData-V4-Service pro Bereich:
 - **Stammdaten (`ZUI_MERP_O4`):** Buchungskreis, Lager, Geschäftspartner, Warengruppe, Artikel, MwSt.-Satz.
 - **Einkauf (`ZUI_MERP_PROCUREMENT_O4`):** Bestellungen, Wareneingänge und ihre Positionen (plus referenzierte Stammdaten). Zusätzlich über ein Communication Scenario veröffentlicht.
 - **Vertrieb (`ZUI_MERP_SALES_O4`):** Kundenaufträge, Warenausgänge und ihre Positionen (plus referenzierte Stammdaten).
-- **Bestand (`ZUI_MERP_STOCK_O4`):** Bestandssalden und Bestandsbewegungen, nur Anzeige.
+- **Bestand (`ZUI_MERP_STOCK_O4`):** Bestandssalden und Bestandsbewegungen (nur Anzeige) sowie Umlagerungen (plus referenzierte Stammdaten).
 
 ---
 

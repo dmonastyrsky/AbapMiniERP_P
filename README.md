@@ -15,7 +15,7 @@
 
 Mini ERP is a demonstration ERP application built with SAP ABAP Cloud and the SAP RESTful Application Programming Model (RAP, managed with draft) on the SAP BTP ABAP Environment (trial).
 
-It covers a simplified but complete business chain: master data → purchasing (purchase order → goods receipt) → inventory → sales (sales order → goods issue). The behaviour follows the SAP standard (purchasing, sales, inventory management) as closely as possible, in simplified form.
+It covers a simplified but complete business chain: master data → purchasing (purchase order → goods receipt) → inventory (incl. stock transfers between warehouses) → sales (sales order → goods issue). The behaviour follows the SAP standard (purchasing, sales, inventory management) as closely as possible, in simplified form.
 
 The project is a portfolio piece showing cloud-ready ABAP development: RAP business objects, CDS view entities, OData V4 services and SAP Fiori elements.
 
@@ -42,12 +42,12 @@ Details: [Architecture & Technical Design](docs/Architecture.md).
 |---|---|---|
 | Master data | Company Code, Warehouse, Business Partner, Item Group, Item, VAT Rate | Implemented |
 | Purchasing | Purchase Order, Goods Receipt | Implemented |
-| Inventory | Stock journal and balances, availability check, moving average cost, stock locks, read-only stock app | Implemented |
+| Inventory | Stock journal and balances, availability check, moving average cost, stock locks, stock transfer between warehouses, stock app | Implemented |
 | Sales | Sales Order, Goods Issue | Implemented |
 | Test data | Clear all data and seed with documents in every status | Implemented |
 
-**Ideas, not started:** stock transfer between warehouses (like SAP movement type 311); automatic price proposal in documents.
-**Deferred:** currency conversion; closing a single order line; stock on a date / period closing.
+**Ideas, not started:** automatic price proposal in documents.
+**Deferred:** currency conversion; closing a single order line; stock on a date / period closing; editable line warehouses; further stock documents (inventory count, scrapping).
 
 ---
 
@@ -67,7 +67,8 @@ Details: [Architecture & Technical Design](docs/Architecture.md).
 
 ### Documents
 - Line amounts (net, VAT, gross) and header totals are recalculated on every change; prices are net.
-- Field-level validation messages disappear as soon as the field is corrected; duplicate items are rejected.
+- Field-level validation messages disappear as soon as the field is corrected; duplicate items are rejected (checked again when a line is deleted).
+- Every line carries the warehouse, a read-only copy of the header warehouse (like the storage location of an SAP item); stock checks and postings use the line warehouse.
 - Only the company currency is allowed until currency conversion exists; posting date may not lie in the future.
 
 ### Order → Follow-up Document
@@ -82,8 +83,13 @@ Details: [Architecture & Technical Design](docs/Architecture.md).
 - Posting and unposting lock the order and the stock of its items, so parallel postings cannot overbook.
 - Services create no stock movements.
 
+### Stock Transfer
+- Moves products between two warehouses of one company, like SAP movement type 301: a warehouse plays the role of the plant. (Not 311, because there are no storage locations.)
+- Posting issues the goods at the moving average cost of the issuing warehouse and receives the same value in the receiving warehouse, so the moving average of the receiving warehouse changes.
+- Availability is checked in the issuing warehouse; unposting may not make the receiving warehouse negative; both warehouses are locked during posting.
+
 ### Test Data
-- `ZCL_MERP_INITIAL_SETUP` (run with F9) clears all data and creates master data plus purchasing and sales documents covering every status, including rounding and moving-average cases.
+- `ZCL_MERP_INITIAL_SETUP` (run with F9) clears all data and creates master data plus purchasing, sales and stock transfer documents covering every status, including rounding and moving-average cases.
 
 ---
 
@@ -93,7 +99,7 @@ One OData V4 service per area:
 - **Master data (`ZUI_MERP_O4`):** Company Code, Warehouse, Business Partner, Item Group, Item, VAT Rate.
 - **Purchasing (`ZUI_MERP_PROCUREMENT_O4`):** Purchase Orders, Goods Receipts and their lines (plus the master data they reference). Published also via a communication scenario.
 - **Sales (`ZUI_MERP_SALES_O4`):** Sales Orders, Goods Issues and their lines (plus the master data they reference).
-- **Stock (`ZUI_MERP_STOCK_O4`):** read-only stock balances and stock movements.
+- **Stock (`ZUI_MERP_STOCK_O4`):** stock balances and stock movements (read-only) and stock transfers (plus the master data they reference).
 
 ---
 

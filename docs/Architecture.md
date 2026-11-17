@@ -4,7 +4,7 @@
 
 ## 1. Domain Model
 
-6 master data objects, 4 document types (each header + items) and a stock journal.
+6 master data objects, 5 document types (each header + items) and a stock journal.
 
 ### 1.1 Master Data
 
@@ -29,9 +29,13 @@
 | Goods Receipt | `ZMERP_GR_HDR` / `_ITM` | `ZMERP_R_GOODSRECEIPT` | New, Posted, Cancelled |
 | Sales Order | `ZMERP_SO_HDR` / `_ITM` | `ZMERP_R_SALESORDER` | Open, In Process, Completed, Rejected |
 | Goods Issue | `ZMERP_GI_HDR` / `_ITM` | `ZMERP_R_GOODSISSUE` | New, Posted, Cancelled |
+| Stock Transfer | `ZMERP_ST_HDR` / `_ITM` | `ZMERP_R_STOCKTRANSFER` | New, Posted, Cancelled |
 
-Header: number, status, document date, posting date, company, warehouse, partner, currency, responsible person, remarks, net and gross totals; plus partner reference (supplier / customer reference), PO delivery date, order reference in GR / GI.
-Line: line number (10, 20, …), item, quantity, unit, price, VAT code, net / VAT / gross amount, currency; GR / GI lines reference the order line.
+The document structures are split into a base part and a commercial part:
+- **Base, in every document:** header number, status, document date, posting date, company, warehouse, responsible person, remarks; line number (10, 20, …), item, quantity, unit, warehouse.
+- **Commercial, only in purchase order, goods receipt, sales order and goods issue:** header partner, currency, net and gross totals; line price, VAT code, net / VAT / gross amount, currency.
+- **Own fields:** supplier / customer reference, PO delivery date, order reference in GR / GI (header and line), receiving warehouse in the stock transfer (header and line).
+- The line warehouse is a read-only copy of the header warehouse (like the storage location of an SAP item). Stock locks, availability, movements and the "In Stock" column use it.
 
 ---
 
@@ -43,7 +47,7 @@ Line: line number (10, 20, …), item, quantity, unit, price, VAT code, net / VA
 | Warehouse | `WH001` | number range at creation (`ZNR_WHSE`) |
 | Business Partner, Item Group, Item | `00001` | number range at creation (`ZNR_BP`, `ZNR_IG`, `ZNR_ITEM`) |
 | VAT Rate | `V001` | number range at creation (`ZNR_VAT`) |
-| Purchase Order, Goods Receipt, Sales Order, Goods Issue | `DE00000001` | company prefix + 8 digits, one range per type and company (`ZNR_PURORD`, `ZNR_GDSREC`, `ZNR_SALORD`, `ZNR_GDSISS`), assigned on first save |
+| Purchase Order, Goods Receipt, Sales Order, Goods Issue, Stock Transfer | `DE00000001` | company prefix + 8 digits, one range per type and company (`ZNR_PURORD`, `ZNR_GDSREC`, `ZNR_SALORD`, `ZNR_GDSISS`, `ZNR_STKTRF`), assigned on first save |
 
 - All number ranges are buffered with one number in main memory (numbers are drawn before the save phase).
 - No fallback: if the number range fails, the record / document is not saved. A document is never saved without a number.
@@ -70,8 +74,8 @@ Line: line number (10, 20, …), item, quantity, unit, price, VAT code, net / VA
 ### 4.1 Common Behaviour
 - Defaults: document date today, posting date = document date, first status. A company change clears a warehouse of another company; orders take the company currency.
 - Editing only in the first status; actions only on saved documents. The company is read-only once the document has a number.
-- Header checks: company, warehouse and partner exist; warehouse belongs to the company; partner has the right role; company currency; document and posting date not in the future; posting date ≥ document date.
-- Lines: item → unit and VAT; quantity and price > 0; net = quantity × price; totals on every change. Duplicate items are rejected.
+- Header checks: company and warehouse exist, warehouse belongs to the company; documents with a partner also check the partner and its role and the company currency; document and posting date not in the future; posting date ≥ document date.
+- Lines: item → unit; quantity > 0. Commercial documents also: item → VAT; price > 0; net = quantity × price; totals on every change. Duplicate items are rejected, checked again when a line is deleted.
 - Delete only in the first status or when cancelled / rejected, and only if no other document references it.
 - Draft locks are standard RAP: an order draft locks the order for about 15 minutes after the last change; posting its follow-up documents fails meanwhile with "order locked".
 - Shared logic: `ZCL_MERP_DOC_ITEM_LOGIC` (defaults, amounts, totals), `ZCL_MERP_DOC_ORDER_REF_LOGIC` (follow-up document against the order lines), `ZCL_MERP_DOC_VALIDATOR`, `ZCL_MERP_DOC_CALC`.
@@ -112,20 +116,28 @@ Mirror of the purchase order with sales-specific differences:
 
 ### 4.5 Goods Issue
 Mirror of the goods receipt with the sales order in the role of the PO:
-- Always based on an SO; header and lines from the SO's open quantities; manual lines possible; columns "Sales Order", "Open in SO" and "In Stock" (current stock of the warehouse).
+- Always based on an SO; header and lines from the SO's open quantities; manual lines possible; columns "Sales Order", "Open in SO" and "In Stock" (current stock of the line warehouse, also in drafts that were never saved).
 - **Post** checks as the goods receipt (SO open / in process) plus **stock availability** of every product line; then SO status and stock movements. **Unpost** needs no stock check.
+
+### 4.6 Stock Transfer
+Like SAP movement type 301 (transfer plant to plant in one step) within one company: a warehouse plays the role of the plant. Not 311, because the project has no storage locations.
+- **Header:** company, issuing warehouse, receiving warehouse, dates, responsible person, remarks. No partner, prices or totals: the value exists only in the stock journal.
+- **Lines:** products only (the value help shows item type P), quantity, unit; issuing and receiving warehouse are copies of the header; column "In Stock" (issuing warehouse).
+- **Rules:** both warehouses belong to the company, the receiving warehouse is mandatory and differs from the issuing one, no duplicate items, quantity > 0.
+- **Statuses** as the goods issue: New → Posted (Post) → New (Unpost); New → Cancelled. Edit only in New.
+- **Post:** at least one line; locks both warehouses of each line; checks availability in the issuing warehouse; issues at the moving average cost of the issuing warehouse and receives the same value in the receiving warehouse, which changes its moving average. **Unpost:** same locks; the receiving warehouse may not become negative; the movements are removed.
 
 ---
 
 ## 5. Inventory
 
-- **Journal** `ZMERP_STOCK_MOV`: company, warehouse, item, quantity (+ receipt / − issue), unit, value in company currency, posting date, document reference. Written only in the save phase by `ZCL_MERP_STOCK_POSTING`; a status change deletes the document's movements, posting writes new ones (no reversal documents).
+- **Journal** `ZMERP_STOCK_MOV`: company, warehouse, item, quantity (+ receipt / − issue), unit, value in company currency, posting date, document type (GR / GI / ST) and reference. One movement per posted product line in the line warehouse; for a stock transfer the posting adds the receipt in the receiving warehouse (like the item SAP creates automatically). Written only in the save phase by `ZCL_MERP_STOCK_POSTING`; a status change deletes the document's movements, posting writes new ones (no reversal documents).
 - **Balances** `ZMERP_R_STOCK_BALANCE`: sum of quantity and value per company, warehouse, item and unit; no balance table.
 - **Valuation:** a receipt adds its net amount (VAT is not stock value). An issue is valued at the moving average cost: quantity × value ÷ quantity of the balance, rounded to 2 decimals; issuing the whole remaining quantity takes the whole remaining value (closes at 0.00). Valuation area = company + warehouse (like the SAP plant).
-- **Availability and locks** (`ZCL_MERP_STOCK_CONTROL`): every Post / Unpost first locks the order and the stock per company, warehouse and item, then reads and checks. A locked document fails with a message naming the order or the locking user. Several lines and documents of one request are checked one after another.
+- **Availability and locks** (`ZCL_MERP_STOCK_CONTROL`): every Post / Unpost first locks the order (goods receipt / goods issue) and the stock per company, line warehouse and item (stock transfer: both warehouses), then reads and checks. Availability is checked at goods issue Post, goods receipt Unpost, stock transfer Post (issuing warehouse) and Unpost (receiving warehouse). A locked document fails with a message naming the order or the locking user. Several lines and documents of one request are checked one after another.
 - Current balance, not the balance on the posting date, is used; back-dated postings are allowed.
 - Only products (item type P) create stock; services do not.
-- **Stock app** (`ZUI_MERP_STOCK`, read-only): Stock Balances (list + movements) and Stock Movements; filters company, warehouse, item, item group, posting date.
+- **Stock app** (`ZUI_MERP_STOCK`): Stock Balances (list + movements) and Stock Movements (with document type), both read-only, and Stock Transfers; filters company, warehouse, item, item group, posting date, document type.
 
 ---
 
@@ -134,8 +146,9 @@ Mirror of the goods receipt with the sales order in the role of the PO:
 - `ZCL_MERP_CLEAR_ALL_DATA`: deletes stock, documents, document intervals, master data and master data intervals (in this order).
 - `ZCL_MERP_INITIAL_SETUP` (F9): clear all, then via RAP (EML) level by level:
   - companies 1000–3000 and blocked 4000 (EUR), VAT rates, item groups, 10 warehouses, 16 items (incl. services and one blocked), 13 partners (suppliers, customers, both, one blocked);
-  - 9 purchase orders and 6 sales orders with their receipts and issues, covering every status, the last-receipt cents case, moving-average valuation and an intentionally failing issue (not enough stock).
-- **Demo company 3000:** an open receipt (cents case) and the remaining moving-average stock to issue are left for live demos.
+  - 9 purchase orders and 6 sales orders with their receipts and issues, covering every status, the last-receipt cents case, moving-average valuation and an intentionally failing issue (not enough stock);
+  - in company 3000 a 10th purchase order and 3 stock transfers: one posted (the receiving warehouse then holds 2 TVs for 1,299.99, a moving average with cents), one new, one cancelled.
+- **Demo company 3000:** an open receipt (cents case), the remaining moving-average stock to issue and the new stock transfer are left for live demos.
 
 ---
 
@@ -144,5 +157,5 @@ Mirror of the goods receipt with the sales order in the role of the PO:
 - **Naming:** tables `ZMERP_<X>` (+ `_D` draft), root views `ZMERP_R_<X>`, projections `ZMERP_C_<X>`, helper / value help / usage views `ZMERP_I_…`, classes `ZCL_MERP_…` with interfaces `ZIF_MERP_…`, exceptions `ZCX_MERP_…`, message classes `ZMC_MERP_…`, number ranges `ZNR_…`.
 - **RAP technique:** behavior definitions in strict mode 2; optimistic locking via ETag (`LocalLastChangedAt`) and total ETag for drafts (`LastChangedAt`); side effects in the projections refresh dependent fields and totals in the UI; global authorization check (allows everything).
 - **Tests:** ABAP Unit test class for the company code selector.
-- **Pattern:** sales documents copy their purchasing twins (sales order ← purchase order, goods issue ← goods receipt); other objects are read only through selector classes.
-- **Simplifications compared to SAP:** unpost instead of reversal documents; no order line status; no reservations; one currency per company; no authorizations (everything allowed); a communication scenario only for purchasing.
+- **Pattern:** sales documents copy their purchasing twins (sales order ← purchase order, goods issue ← goods receipt, stock transfer ← goods issue without order); stock documents use only the base structures; other objects are read only through selector classes.
+- **Simplifications compared to SAP:** unpost instead of reversal documents; no order line status; no reservations; stock transfer only within one company and in one step (no stock in transit); one currency per company; no authorizations (everything allowed); a communication scenario only for purchasing.
