@@ -93,7 +93,10 @@ CLASS zcl_merp_doc_order_ref_logic DEFINITION
   PRIVATE SECTION.
 ENDCLASS.
 
-CLASS zcl_merp_doc_order_ref_logic IMPLEMENTATION.
+
+
+CLASS ZCL_MERP_DOC_ORDER_REF_LOGIC IMPLEMENTATION.
+
 
   METHOD apply_open_amounts.
     CLEAR: et_changed, et_calc.
@@ -117,6 +120,7 @@ CLASS zcl_merp_doc_order_ref_logic IMPLEMENTATION.
       ENDIF.
     ENDLOOP.
   ENDMETHOD.
+
 
   METHOD check_open_values.
     " Manually added items have no order reference and are not checked
@@ -143,6 +147,7 @@ CLASS zcl_merp_doc_order_ref_logic IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
+
   METHOD consume_open_values.
     LOOP AT it_items INTO DATA(ls_item) WHERE OrderItemReferenceUUID IS NOT INITIAL.
       ASSIGN ct_order_items[ OrderItemUUID = ls_item-OrderItemReferenceUUID ] TO FIELD-SYMBOL(<ls_open>).
@@ -154,6 +159,7 @@ CLASS zcl_merp_doc_order_ref_logic IMPLEMENTATION.
       ENDIF.
     ENDLOOP.
   ENDMETHOD.
+
 
   METHOD calc_order_progress.
     LOOP AT it_order_items INTO DATA(ls_order_item)
@@ -193,5 +199,4 @@ CLASS zcl_merp_doc_order_ref_logic IMPLEMENTATION.
       ENDIF.
     ENDLOOP.
   ENDMETHOD.
-
 ENDCLASS.

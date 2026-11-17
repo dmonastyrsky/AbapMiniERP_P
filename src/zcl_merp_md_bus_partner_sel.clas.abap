@@ -6,6 +6,7 @@ CLASS zcl_merp_md_bus_partner_sel DEFINITION
   PUBLIC SECTION.
     INTERFACES zif_merp_md_bus_partner_sel.
 
+protected section.
   PRIVATE SECTION.
     "! Cleanses, sorts and removes duplicates from input keys
     "! @parameter it_keys | Raw table of keys
@@ -15,7 +16,10 @@ CLASS zcl_merp_md_bus_partner_sel DEFINITION
       RETURNING VALUE(rt_keys) TYPE zif_merp_md_bus_partner_sel=>tt_partner_keys.
 ENDCLASS.
 
-CLASS zcl_merp_md_bus_partner_sel IMPLEMENTATION.
+
+
+CLASS ZCL_MERP_MD_BUS_PARTNER_SEL IMPLEMENTATION.
+
 
   METHOD zif_merp_md_bus_partner_sel~read_partner.
     DATA(lt_partners) = zif_merp_md_bus_partner_sel~read_partners(
@@ -34,6 +38,7 @@ CLASS zcl_merp_md_bus_partner_sel IMPLEMENTATION.
     ENDTRY.
   ENDMETHOD.
 
+
   METHOD zif_merp_md_bus_partner_sel~read_partners.
     DATA(lt_clean_keys) = prepare_keys( it_partner_keys ).
     IF lt_clean_keys IS INITIAL.
@@ -45,6 +50,15 @@ CLASS zcl_merp_md_bus_partner_sel IMPLEMENTATION.
       INNER JOIN @lt_clean_keys AS keys ON bp~PartnerCode = keys~PartnerCode
       INTO TABLE @rt_partners.
   ENDMETHOD.
+
+
+  METHOD prepare_keys.
+    rt_keys = it_keys.
+    DELETE rt_keys WHERE PartnerCode IS INITIAL.
+    SORT rt_keys BY PartnerCode.
+    DELETE ADJACENT DUPLICATES FROM rt_keys COMPARING PartnerCode.
+  ENDMETHOD.
+
 
   METHOD zif_merp_md_bus_partner_sel~read_usages.
     DATA(lt_clean_keys) = prepare_keys( it_partner_keys ).
@@ -58,13 +72,4 @@ CLASS zcl_merp_md_bus_partner_sel IMPLEMENTATION.
       INNER JOIN @lt_clean_keys AS keys ON usage~PartnerCode = keys~PartnerCode
       INTO CORRESPONDING FIELDS OF TABLE @rt_usages.
   ENDMETHOD.
-
-  METHOD prepare_keys.
-    rt_keys = it_keys.
-    DELETE rt_keys WHERE PartnerCode IS INITIAL.
-    SORT rt_keys BY PartnerCode.
-    DELETE ADJACENT DUPLICATES FROM rt_keys COMPARING PartnerCode.
-  ENDMETHOD.
-
 ENDCLASS.
-

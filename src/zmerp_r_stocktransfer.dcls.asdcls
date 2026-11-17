@@ -1,0 +1,6 @@
+@EndUserText.label: 'ZMERP_R_STOCKTRANSFER'
+@MappingRole: true
+define role ZMERP_R_STOCKTRANSFER {
+  grant select on ZMERP_R_STOCKTRANSFER
+  where TRUE;
+}

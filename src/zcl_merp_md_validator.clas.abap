@@ -25,7 +25,10 @@ CLASS zcl_merp_md_validator DEFINITION
   PRIVATE SECTION.
 ENDCLASS.
 
-CLASS zcl_merp_md_validator IMPLEMENTATION.
+
+
+CLASS ZCL_MERP_MD_VALIDATOR IMPLEMENTATION.
+
 
   METHOD is_vat_percentage_valid.
     " Standard European ERP tax configuration constraint (0.00% to 100.00%)
@@ -36,6 +39,7 @@ CLASS zcl_merp_md_validator IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
+
   METHOD is_company_prefix_valid.
     " Corporate standard requirement: Company Prefix must be exactly 2 characters long
     IF numofchar( condense( iv_prefix ) ) = 2.
@@ -44,6 +48,4 @@ CLASS zcl_merp_md_validator IMPLEMENTATION.
       rv_is_valid = abap_false.
     ENDIF.
   ENDMETHOD.
-
 ENDCLASS.
-

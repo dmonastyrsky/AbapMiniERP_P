@@ -89,46 +89,57 @@ CLASS zcl_merp_doc_validator DEFINITION
   PRIVATE SECTION.
 ENDCLASS.
 
-CLASS zcl_merp_doc_validator IMPLEMENTATION.
+
+
+CLASS ZCL_MERP_DOC_VALIDATOR IMPLEMENTATION.
+
 
   METHOD is_document_date_valid.
     " Standard ERP constraint: Document creation in the future is invalid
     rv_is_valid = xsdbool( iv_doc_date <= iv_today ).
   ENDMETHOD.
 
+
   METHOD is_posting_date_not_future.
     rv_is_valid = xsdbool( iv_post_date <= iv_today ).
   ENDMETHOD.
+
 
   METHOD is_posting_date_valid.
     " Financial subledger constraint: Posting date cannot precede the baseline document date
     rv_is_valid = xsdbool( iv_post_date >= iv_doc_date ).
   ENDMETHOD.
 
+
   METHOD is_delivery_date_valid.
     " Supply Chain constraint: Goods cannot be requested for delivery before the order exists
     rv_is_valid = xsdbool( iv_deliv_date >= iv_doc_date ).
   ENDMETHOD.
+
 
   METHOD is_pur_partner_supplier.
     " Checks if the master data record flag for supplier is active
     rv_is_valid = xsdbool( iv_is_supplier = abap_true ).
   ENDMETHOD.
 
+
   METHOD is_sd_partner_customer.
     " Checks if the master data record flag for customer is active
     rv_is_valid = xsdbool( iv_is_customer = abap_true ).
   ENDMETHOD.
+
 
   METHOD is_item_quantity_valid.
     " Purchasing rule: Order line items must require a positive volume/quantity
     rv_is_valid = xsdbool( iv_quantity > 0 ).
   ENDMETHOD.
 
+
   METHOD is_item_price_valid.
     " Commercial constraint: Unit pricing must hold a real positive value
     rv_is_valid = xsdbool( iv_price > 0 ).
   ENDMETHOD.
+
 
   METHOD get_duplicate_item_codes.
     CLEAR rt_duplicates.
@@ -151,6 +162,4 @@ CLASS zcl_merp_doc_validator IMPLEMENTATION.
       ENDIF.
     ENDLOOP.
   ENDMETHOD.
-
-
 ENDCLASS.

@@ -84,15 +84,19 @@ CLASS zcl_merp_doc_po_lifecycle DEFINITION
 ENDCLASS.
 
 
-CLASS zcl_merp_doc_po_lifecycle IMPLEMENTATION.
+
+CLASS ZCL_MERP_DOC_PO_LIFECYCLE IMPLEMENTATION.
+
 
   METHOD can_edit.
     rv_allowed = xsdbool( iv_status = c_status_new ).
   ENDMETHOD.
 
+
   METHOD can_release.
     rv_allowed = xsdbool( iv_status = c_status_new ).
   ENDMETHOD.
+
 
   METHOD can_cancel.
     rv_allowed = xsdbool( iv_status = c_status_new
@@ -100,27 +104,11 @@ CLASS zcl_merp_doc_po_lifecycle IMPLEMENTATION.
                        OR iv_status = c_status_in_delivery ).
   ENDMETHOD.
 
+
   METHOD can_delete.
     rv_allowed = xsdbool( iv_status = c_status_new OR iv_status = c_status_cancelled ).
   ENDMETHOD.
 
-  METHOD can_set_in_delivery.
-    rv_allowed = xsdbool( iv_status = c_status_approved ).
-  ENDMETHOD.
-
-  METHOD can_receive_goods.
-    rv_allowed = xsdbool( iv_status = c_status_approved OR iv_status = c_status_in_delivery ).
-  ENDMETHOD.
-
-  METHOD can_complete.
-    rv_allowed = xsdbool( iv_status = c_status_approved OR iv_status = c_status_in_delivery ).
-  ENDMETHOD.
-
-  METHOD is_receipt_status.
-    rv_result = xsdbool( iv_status = c_status_approved
-                      OR iv_status = c_status_in_delivery
-                      OR iv_status = c_status_completed ).
-  ENDMETHOD.
 
   METHOD derive_receipt_status.
     IF is_receipt_status( iv_status ) = abap_false.
@@ -133,9 +121,31 @@ CLASS zcl_merp_doc_po_lifecycle IMPLEMENTATION.
                         ELSE c_status_approved ).
   ENDMETHOD.
 
+
+  METHOD can_receive_goods.
+    rv_allowed = xsdbool( iv_status = c_status_approved OR iv_status = c_status_in_delivery ).
+  ENDMETHOD.
+
+
+  METHOD can_complete.
+    rv_allowed = xsdbool( iv_status = c_status_approved OR iv_status = c_status_in_delivery ).
+  ENDMETHOD.
+
+
+  METHOD is_receipt_status.
+    rv_result = xsdbool( iv_status = c_status_approved
+                      OR iv_status = c_status_in_delivery
+                      OR iv_status = c_status_completed ).
+  ENDMETHOD.
+
+
   METHOD is_delivery_date_actual.
     " Past delivery date check holds only during the New status creation phase
     rv_is_valid = xsdbool( iv_status <> c_status_new OR iv_delivery_date >= iv_today ).
   ENDMETHOD.
 
+
+  METHOD can_set_in_delivery.
+    rv_allowed = xsdbool( iv_status = c_status_approved ).
+  ENDMETHOD.
 ENDCLASS.

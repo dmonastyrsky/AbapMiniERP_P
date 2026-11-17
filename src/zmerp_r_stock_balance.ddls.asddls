@@ -22,6 +22,7 @@ define root view entity ZMERP_R_STOCK_BALANCE
   key unit_of_measure as UnitOfMeasure,
   key currency_code   as CurrencyCode,
 
+      @EndUserText.label: 'Quantity'
       @Semantics.quantity.unitOfMeasure: 'UnitOfMeasure'
       sum( quantity ) as Quantity,
 

@@ -61,33 +61,41 @@ CLASS zcl_merp_doc_so_lifecycle DEFINITION
 ENDCLASS.
 
 
-CLASS zcl_merp_doc_so_lifecycle IMPLEMENTATION.
+
+CLASS ZCL_MERP_DOC_SO_LIFECYCLE IMPLEMENTATION.
+
 
   METHOD can_edit.
     rv_allowed = xsdbool( iv_status = c_status_open ).
   ENDMETHOD.
 
+
   METHOD can_reject.
     rv_allowed = xsdbool( iv_status = c_status_open ).
   ENDMETHOD.
+
 
   METHOD can_delete.
     rv_allowed = xsdbool( iv_status = c_status_open OR iv_status = c_status_rejected ).
   ENDMETHOD.
 
+
   METHOD can_issue_goods.
     rv_allowed = xsdbool( iv_status = c_status_open OR iv_status = c_status_in_process ).
   ENDMETHOD.
 
+
   METHOD can_complete.
     rv_allowed = xsdbool( iv_status = c_status_in_process ).
   ENDMETHOD.
+
 
   METHOD is_issue_status.
     rv_result = xsdbool( iv_status = c_status_open
                       OR iv_status = c_status_in_process
                       OR iv_status = c_status_completed ).
   ENDMETHOD.
+
 
   METHOD derive_issue_status.
     IF is_issue_status( iv_status ) = abap_false.
@@ -99,5 +107,4 @@ CLASS zcl_merp_doc_so_lifecycle IMPLEMENTATION.
                         WHEN iv_any_issued = abap_true THEN c_status_in_process
                         ELSE c_status_open ).
   ENDMETHOD.
-
 ENDCLASS.

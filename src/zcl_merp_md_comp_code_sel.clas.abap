@@ -6,6 +6,7 @@ CLASS zcl_merp_md_comp_code_sel DEFINITION
   PUBLIC SECTION.
     INTERFACES zif_merp_md_comp_code_sel.
 
+protected section.
   PRIVATE SECTION.
     "! Cleanses, sorts and removes duplicates from input keys
     "! @parameter it_keys | Raw table of keys
@@ -15,7 +16,10 @@ CLASS zcl_merp_md_comp_code_sel DEFINITION
       RETURNING VALUE(rt_keys) TYPE zif_merp_md_comp_code_sel=>tt_company_keys.
 ENDCLASS.
 
-CLASS zcl_merp_md_comp_code_sel IMPLEMENTATION.
+
+
+CLASS ZCL_MERP_MD_COMP_CODE_SEL IMPLEMENTATION.
+
 
   METHOD zif_merp_md_comp_code_sel~read_company.
     DATA(lt_companies) = zif_merp_md_comp_code_sel~read_companies(
@@ -34,6 +38,7 @@ CLASS zcl_merp_md_comp_code_sel IMPLEMENTATION.
     ENDTRY.
   ENDMETHOD.
 
+
   METHOD zif_merp_md_comp_code_sel~read_companies.
     DATA(lt_clean_keys) = prepare_keys( it_company_keys ).
     IF lt_clean_keys IS INITIAL.
@@ -45,6 +50,15 @@ CLASS zcl_merp_md_comp_code_sel IMPLEMENTATION.
       INNER JOIN @lt_clean_keys AS keys ON comp~CompanyCode = keys~CompanyCode
       INTO TABLE @rt_companies.
   ENDMETHOD.
+
+
+  METHOD prepare_keys.
+    rt_keys = it_keys.
+    DELETE rt_keys WHERE CompanyCode IS INITIAL.
+    SORT rt_keys BY CompanyCode.
+    DELETE ADJACENT DUPLICATES FROM rt_keys COMPARING CompanyCode.
+  ENDMETHOD.
+
 
   METHOD zif_merp_md_comp_code_sel~read_usages.
     DATA(lt_clean_keys) = prepare_keys( it_company_keys ).
@@ -58,13 +72,4 @@ CLASS zcl_merp_md_comp_code_sel IMPLEMENTATION.
       INNER JOIN @lt_clean_keys AS keys ON usage~CompanyCode = keys~CompanyCode
       INTO CORRESPONDING FIELDS OF TABLE @rt_usages.
   ENDMETHOD.
-
-  METHOD prepare_keys.
-    rt_keys = it_keys.
-    DELETE rt_keys WHERE CompanyCode IS INITIAL.
-    SORT rt_keys BY CompanyCode.
-    DELETE ADJACENT DUPLICATES FROM rt_keys COMPARING CompanyCode.
-  ENDMETHOD.
-
 ENDCLASS.
-

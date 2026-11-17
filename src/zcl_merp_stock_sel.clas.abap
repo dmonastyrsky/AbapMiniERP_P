@@ -12,7 +12,9 @@ CLASS zcl_merp_stock_sel DEFINITION
 ENDCLASS.
 
 
-CLASS zcl_merp_stock_sel IMPLEMENTATION.
+
+CLASS ZCL_MERP_STOCK_SEL IMPLEMENTATION.
+
 
   METHOD zif_merp_stock_sel~read_balances.
     DATA lt_keys TYPE tt_unique_keys.
@@ -39,5 +41,4 @@ CLASS zcl_merp_stock_sel IMPLEMENTATION.
       GROUP BY bal~CompanyCode, bal~WarehouseCode, bal~ItemCode, bal~UnitOfMeasure
       INTO CORRESPONDING FIELDS OF TABLE @rt_balances.
   ENDMETHOD.
-
 ENDCLASS.

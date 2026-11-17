@@ -75,6 +75,11 @@ CLASS lhc_zmerp_r_goodsissue DEFINITION INHERITING FROM cl_abap_behavior_handler
       IMPORTING
         keys FOR GoodsIssue~syncItemCurrency.
 
+    "! Keeps the warehouse of all items in sync with the header warehouse.
+    METHODS syncItemWarehouse FOR DETERMINE ON MODIFY
+      IMPORTING
+        keys FOR GoodsIssue~syncItemWarehouse.
+
     "! Derives header fields and items when the referenced Sales Order changes.
     METHODS deriveDocFromSalesOrder FOR DETERMINE ON MODIFY
       IMPORTING
@@ -281,7 +286,7 @@ CLASS lhc_zmerp_r_goodsissue IMPLEMENTATION.
   ENDMETHOD.
 
   " --- Actions ---
-  METHOD postDocument.
+    METHOD postDocument.
     DATA lt_update       TYPE TABLE FOR UPDATE zmerp_r_goodsissue.
     DATA lo_message      TYPE REF TO zcx_merp_sd.
     DATA lo_item_message TYPE REF TO zcx_merp_sd.
@@ -290,11 +295,11 @@ CLASS lhc_zmerp_r_goodsissue IMPLEMENTATION.
 
     READ ENTITIES OF zmerp_r_goodsissue IN LOCAL MODE
       ENTITY GoodsIssue
-        FIELDS ( Status DocumentNumber CompanyCode WarehouseCode CurrencyCode SoReferenceUUID PostingDate )
+        FIELDS ( Status DocumentNumber CompanyCode CurrencyCode SoReferenceUUID PostingDate )
         WITH CORRESPONDING #( keys )
         RESULT DATA(lt_headers)
       ENTITY GoodsIssue BY \_Items
-        FIELDS ( HeaderUUID ItemNo ItemCode Quantity UnitOfMeasure NetAmount VatAmount GrossAmount SoItemReferenceUUID )
+        FIELDS ( HeaderUUID ItemNo ItemCode Quantity UnitOfMeasure WarehouseCode NetAmount VatAmount GrossAmount SoItemReferenceUUID )
         WITH CORRESPONDING #( keys )
         RESULT DATA(lt_items).
 
@@ -310,11 +315,12 @@ CLASS lhc_zmerp_r_goodsissue IMPLEMENTATION.
       FROM VALUE #( FOR so_key IN lt_so_keys ( DocumentUUID = so_key-DocumentUUID ) )
       FAILED DATA(ls_so_lock_failed).
 
+    " Stock keys per line: company of the header, warehouse of the line (as the storage location of a SAP item)
     DATA(lt_stock_keys) = VALUE zif_merp_stock_sel=>tt_stock_keys(
       FOR item IN lt_items
       LET header = VALUE #( lt_headers[ DocumentUUID = item-HeaderUUID ] OPTIONAL ) IN
       ( CompanyCode   = header-CompanyCode
-        WarehouseCode = header-WarehouseCode
+        WarehouseCode = item-WarehouseCode
         ItemCode      = item-ItemCode
         UnitOfMeasure = item-UnitOfMeasure ) ).
 
@@ -386,7 +392,7 @@ CLASS lhc_zmerp_r_goodsissue IMPLEMENTATION.
       IF lo_message IS NOT BOUND.
         LOOP AT lt_items REFERENCE INTO DATA(lr_locked) WHERE HeaderUUID = lr_header->DocumentUUID.
           ASSIGN lt_lock_failures[ company_code   = lr_header->CompanyCode
-                                   warehouse_code = lr_header->WarehouseCode
+                                   warehouse_code = lr_locked->WarehouseCode
                                    item_code      = lr_locked->ItemCode ] TO FIELD-SYMBOL(<ls_lock>).
           IF sy-subrc = 0.
             lo_message = NEW #( textid   = zcx_merp_sd=>stock_locked
@@ -436,17 +442,18 @@ CLASS lhc_zmerp_r_goodsissue IMPLEMENTATION.
         ENDLOOP.
       ENDIF.
 
-      " 4. Availability: the stock must cover the issued products (ST3); a covered document takes its
-      "    quantities from the stock, so further documents of the request are checked against the rest
+      " 4. Availability: the stock of the warehouse of each line must cover the issued products (ST3);
+      "    a covered document takes its quantities from the stock, so further documents of the request
+      "    are checked against the rest
       IF lo_message IS NOT BOUND AND lv_items_valid = abap_true.
         DATA(lt_shortages) = lo_stock->check_availability(
-          iv_company_code   = lr_header->CompanyCode
-          iv_warehouse_code = lr_header->WarehouseCode
-          it_lines          = VALUE #( FOR item IN lt_items WHERE ( HeaderUUID = lr_header->DocumentUUID )
-                                       ( item_uuid       = item-ItemUUID
-                                         item_code       = item-ItemCode
-                                         quantity        = item-Quantity
-                                         unit_of_measure = item-UnitOfMeasure ) ) ).
+          iv_company_code = lr_header->CompanyCode
+          it_lines        = VALUE #( FOR item IN lt_items WHERE ( HeaderUUID = lr_header->DocumentUUID )
+                                     ( item_uuid       = item-ItemUUID
+                                       item_code       = item-ItemCode
+                                       warehouse_code  = item-WarehouseCode
+                                       quantity        = item-Quantity
+                                       unit_of_measure = item-UnitOfMeasure ) ) ).
 
         LOOP AT lt_items REFERENCE INTO lr_item WHERE HeaderUUID = lr_header->DocumentUUID.
           IF line_exists( lt_shortages[ table_line = lr_item->ItemUUID ] ).
@@ -459,7 +466,7 @@ CLASS lhc_zmerp_r_goodsissue IMPLEMENTATION.
                                                   severity = if_abap_behv_message=>severity-error
                                                   attr1    = CONV #( lr_item->ItemNo )
                                                   attr2    = CONV #( lr_item->ItemCode )
-                                                  attr3    = CONV #( lr_header->WarehouseCode ) )
+                                                  attr3    = CONV #( lr_item->WarehouseCode ) )
                             %element-Quantity = if_abap_behv=>mk-on ) TO reported-goodsissueitem.
           ENDIF.
         ENDLOOP.
@@ -541,11 +548,11 @@ CLASS lhc_zmerp_r_goodsissue IMPLEMENTATION.
 
     READ ENTITIES OF zmerp_r_goodsissue IN LOCAL MODE
       ENTITY GoodsIssue
-        FIELDS ( Status DocumentNumber CompanyCode WarehouseCode SoReferenceUUID )
+        FIELDS ( Status DocumentNumber CompanyCode SoReferenceUUID )
         WITH CORRESPONDING #( keys )
         RESULT DATA(lt_headers)
       ENTITY GoodsIssue BY \_Items
-        FIELDS ( HeaderUUID ItemCode Quantity UnitOfMeasure SoItemReferenceUUID )
+        FIELDS ( HeaderUUID ItemCode Quantity UnitOfMeasure WarehouseCode SoItemReferenceUUID )
         WITH CORRESPONDING #( keys )
         RESULT DATA(lt_items).
 
@@ -561,11 +568,12 @@ CLASS lhc_zmerp_r_goodsissue IMPLEMENTATION.
       FROM VALUE #( FOR so_key IN lt_so_keys ( DocumentUUID = so_key-DocumentUUID ) )
       FAILED DATA(ls_so_lock_failed).
 
+    " Stock keys per line: company of the header, warehouse of the line (as the storage location of a SAP item)
     DATA(lt_lock_failures) = zcl_merp_stock_control=>lock_stock(
       VALUE #( FOR item IN lt_items
                LET header = VALUE #( lt_headers[ DocumentUUID = item-HeaderUUID ] OPTIONAL ) IN
                ( CompanyCode   = header-CompanyCode
-                 WarehouseCode = header-WarehouseCode
+                 WarehouseCode = item-WarehouseCode
                  ItemCode      = item-ItemCode
                  UnitOfMeasure = item-UnitOfMeasure ) ) ).
 
@@ -593,7 +601,7 @@ CLASS lhc_zmerp_r_goodsissue IMPLEMENTATION.
       IF lo_message IS NOT BOUND.
         LOOP AT lt_items REFERENCE INTO DATA(lr_locked) WHERE HeaderUUID = lr_header->DocumentUUID.
           ASSIGN lt_lock_failures[ company_code   = lr_header->CompanyCode
-                                   warehouse_code = lr_header->WarehouseCode
+                                   warehouse_code = lr_locked->WarehouseCode
                                    item_code      = lr_locked->ItemCode ] TO FIELD-SYMBOL(<ls_lock>).
           IF sy-subrc = 0.
             lo_message = NEW #( textid   = zcx_merp_sd=>stock_locked
@@ -884,6 +892,44 @@ CLASS lhc_zmerp_r_goodsissue IMPLEMENTATION.
       MODIFY ENTITIES OF zmerp_r_goodsissue IN LOCAL MODE
         ENTITY GoodsIssueItem
         UPDATE FIELDS ( CurrencyCode )
+        WITH lt_items_to_update.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD syncItemWarehouse.
+    DATA lt_items_to_update TYPE TABLE FOR UPDATE zmerp_r_goodsissue\\GoodsIssueItem.
+
+    READ ENTITIES OF zmerp_r_goodsissue IN LOCAL MODE
+      ENTITY GoodsIssue
+        FIELDS ( WarehouseCode )
+        WITH CORRESPONDING #( keys )
+        RESULT DATA(lt_headers)
+      ENTITY GoodsIssue BY \_Items
+        FIELDS ( HeaderUUID WarehouseCode )
+        WITH CORRESPONDING #( keys )
+        RESULT DATA(lt_items).
+
+    IF lt_headers IS INITIAL OR lt_items IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    LOOP AT lt_items REFERENCE INTO DATA(lr_item).
+      ASSIGN lt_headers[ DocumentUUID = lr_item->HeaderUUID
+                         %is_draft    = lr_item->%is_draft ] TO FIELD-SYMBOL(<ls_header>).
+
+      " Item warehouse follows the header warehouse
+      IF sy-subrc = 0 AND lr_item->WarehouseCode <> <ls_header>-WarehouseCode.
+        APPEND VALUE #(
+          %tky          = lr_item->%tky
+          WarehouseCode = <ls_header>-WarehouseCode
+        ) TO lt_items_to_update.
+      ENDIF.
+    ENDLOOP.
+
+    IF lt_items_to_update IS NOT INITIAL.
+      MODIFY ENTITIES OF zmerp_r_goodsissue IN LOCAL MODE
+        ENTITY GoodsIssueItem
+        UPDATE FIELDS ( WarehouseCode )
         WITH lt_items_to_update.
     ENDIF.
   ENDMETHOD.
@@ -1498,6 +1544,9 @@ CLASS lhc_zmerp_r_goodsissueitm DEFINITION INHERITING FROM cl_abap_behavior_hand
     " and consumed (and cleared) by calcHeaderTotals within the same request
     CLASS-DATA gt_deleted_headers TYPE STANDARD TABLE OF ty_header_key WITH EMPTY KEY.
 
+    " Static buffer: parents of the items being deleted, consumed (and cleared) by handleMessagesOnItemModify
+    CLASS-DATA gt_deleted_dup_headers TYPE STANDARD TABLE OF ty_header_key WITH EMPTY KEY.
+
     " --- Access and state ---
     "! Items copied from a sales order: item code, price and VAT code are fixed by the order, only quantity can change.
     METHODS get_instance_features FOR INSTANCE FEATURES
@@ -1600,8 +1649,12 @@ CLASS lhc_zmerp_r_goodsissueitm IMPLEMENTATION.
       WITH CORRESPONDING #( keys )
       RESULT DATA(lt_items).
 
-    " Parents of the deleted items, for calcHeaderTotals
+    " Parents of the deleted items, for calcHeaderTotals and for the duplicate check
     gt_deleted_headers = VALUE #( BASE gt_deleted_headers
+      FOR item IN lt_items ( document_uuid = item-HeaderUUID
+                             is_draft      = item-%is_draft ) ).
+
+    gt_deleted_dup_headers = VALUE #( BASE gt_deleted_dup_headers
       FOR item IN lt_items ( document_uuid = item-HeaderUUID
                              is_draft      = item-%is_draft ) ).
   ENDMETHOD.
@@ -1676,14 +1729,14 @@ CLASS lhc_zmerp_r_goodsissueitm IMPLEMENTATION.
   " --- Determinations on modify ---
   METHOD setItemDefaults.
 
-    " Items and their parent headers (document currency)
+    " Items and their parent headers (document currency and warehouse)
     READ ENTITIES OF zmerp_r_goodsissue IN LOCAL MODE
       ENTITY GoodsIssueItem
-        FIELDS ( HeaderUUID ItemNo ItemCode UnitOfMeasure VatCode CurrencyCode SoItemReferenceUUID )
+        FIELDS ( HeaderUUID ItemNo ItemCode UnitOfMeasure VatCode CurrencyCode WarehouseCode SoItemReferenceUUID )
         WITH CORRESPONDING #( keys )
         RESULT DATA(lt_items)
       ENTITY GoodsIssueItem BY \_GoodsIssue
-        FIELDS ( CurrencyCode )
+        FIELDS ( CurrencyCode WarehouseCode )
         WITH CORRESPONDING #( keys )
         RESULT DATA(lt_headers).
 
@@ -1701,11 +1754,11 @@ CLASS lhc_zmerp_r_goodsissueitm IMPLEMENTATION.
     " Delegate the defaulting to the shared item logic (same for all documents), only changed items are returned;
     " lines of the sales order keep their values (order item reference)
     DATA(lt_changed) = NEW zcl_merp_doc_item_logic( )->set_defaults(
-      it_items             = CORRESPONDING #( lt_items MAPPING IsDraft                = %is_draft
-                                                               OrderItemReferenceUUID = SoItemReferenceUUID )
-      it_siblings          = CORRESPONDING #( lt_siblings MAPPING IsDraft = %is_draft )
-      it_header_currencies = CORRESPONDING #( lt_headers MAPPING HeaderUUID = DocumentUUID
-                                                                 IsDraft    = %is_draft ) ).
+      it_items           = CORRESPONDING #( lt_items MAPPING IsDraft                = %is_draft
+                                                             OrderItemReferenceUUID = SoItemReferenceUUID )
+      it_siblings        = CORRESPONDING #( lt_siblings MAPPING IsDraft = %is_draft )
+      it_header_defaults = CORRESPONDING #( lt_headers MAPPING HeaderUUID = DocumentUUID
+                                                               IsDraft    = %is_draft ) ).
 
     DATA lt_update TYPE TABLE FOR UPDATE zmerp_r_goodsissue\\GoodsIssueItem.
 
@@ -1719,6 +1772,7 @@ CLASS lhc_zmerp_r_goodsissueitm IMPLEMENTATION.
           %tky          = <ls_item>-%tky
           ItemNo        = lr_changed->ItemNo
           CurrencyCode  = lr_changed->CurrencyCode
+          WarehouseCode = lr_changed->WarehouseCode
           UnitOfMeasure = lr_changed->UnitOfMeasure
           VatCode       = lr_changed->VatCode
         ) TO lt_update.
@@ -1728,7 +1782,7 @@ CLASS lhc_zmerp_r_goodsissueitm IMPLEMENTATION.
     IF lt_update IS NOT INITIAL.
       MODIFY ENTITIES OF zmerp_r_goodsissue IN LOCAL MODE
         ENTITY GoodsIssueItem
-        UPDATE FIELDS ( ItemNo CurrencyCode UnitOfMeasure VatCode )
+        UPDATE FIELDS ( ItemNo CurrencyCode WarehouseCode UnitOfMeasure VatCode )
         WITH lt_update.
     ENDIF.
   ENDMETHOD.
@@ -2128,27 +2182,32 @@ CLASS lhc_zmerp_r_goodsissueitm IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD handleMessagesOnItemModify.
+    DATA lt_header_keys TYPE TABLE FOR READ IMPORT zmerp_r_goodsissue.
+
+    " Documents of the changed items; deleted items cannot be read, their documents come from precheck_delete
     READ ENTITIES OF zmerp_r_goodsissue IN LOCAL MODE
       ENTITY GoodsIssueItem
-      FIELDS ( HeaderUUID ItemCode )
+      FIELDS ( HeaderUUID )
       WITH CORRESPONDING #( keys )
       RESULT DATA(lt_items).
 
-    IF lt_items IS INITIAL.
+    lt_header_keys = VALUE #(
+      FOR item IN lt_items ( %tky-DocumentUUID = item-HeaderUUID
+                             %is_draft         = item-%is_draft ) ).
+
+    lt_header_keys = VALUE #( BASE lt_header_keys
+      FOR deleted IN gt_deleted_dup_headers ( %tky-DocumentUUID = deleted-document_uuid
+                                              %is_draft         = deleted-is_draft ) ).
+    CLEAR gt_deleted_dup_headers.
+
+    SORT lt_header_keys BY DocumentUUID %is_draft.
+    DELETE ADJACENT DUPLICATES FROM lt_header_keys COMPARING DocumentUUID %is_draft.
+
+    IF lt_header_keys IS INITIAL.
       RETURN.
     ENDIF.
 
-    DATA lt_header_keys TYPE TABLE FOR READ IMPORT zmerp_r_goodsissue.
-
-    " Documents of the changed items
-    lt_header_keys = VALUE #(
-      FOR GROUPS of <g> IN lt_items GROUP BY ( HeaderUUID = <g>-HeaderUUID
-                                               is_draft   = <g>-%is_draft )
-      ( %tky-DocumentUUID = <g>-HeaderUUID
-        %is_draft         = <g>-%is_draft )
-    ).
-
-    " All items of these documents: a changed item can create or remove a duplicate on another item
+    " All items of these documents: a changed or deleted item can create or remove a duplicate on another item
     READ ENTITIES OF zmerp_r_goodsissue IN LOCAL MODE
       ENTITY GoodsIssue BY \_Items
       FIELDS ( HeaderUUID ItemCode SoItemReferenceUUID )
@@ -2237,16 +2296,16 @@ CLASS lsc_zmerp_r_goodsissue IMPLEMENTATION.
 
     READ ENTITIES OF zmerp_r_goodsissue IN LOCAL MODE
       ENTITY GoodsIssue
-        FIELDS ( CompanyCode WarehouseCode CurrencyCode PostingDate )
+        FIELDS ( CompanyCode CurrencyCode PostingDate )
         WITH lt_posted
         RESULT DATA(lt_headers)
       ENTITY GoodsIssue BY \_Items
-        FIELDS ( HeaderUUID ItemCode Quantity UnitOfMeasure )
+        FIELDS ( HeaderUUID ItemCode Quantity UnitOfMeasure WarehouseCode )
         WITH CORRESPONDING #( lt_posted )
         RESULT DATA(lt_items).
 
-    " One outgoing movement per goods issue item: negative quantity; the value is computed
-    " by the stock posting at moving average cost (ST2)
+    " One outgoing movement per goods issue item in the warehouse of the line: negative quantity;
+    " the value is computed by the stock posting at moving average cost (ST2)
     LOOP AT lt_items REFERENCE INTO DATA(lr_item).
       ASSIGN lt_headers[ DocumentUUID = lr_item->HeaderUUID ] TO FIELD-SYMBOL(<ls_header>).
       IF sy-subrc <> 0.
@@ -2257,7 +2316,7 @@ CLASS lsc_zmerp_r_goodsissue IMPLEMENTATION.
         document_uuid      = lr_item->HeaderUUID
         document_item_uuid = lr_item->ItemUUID
         company_code       = <ls_header>-CompanyCode
-        warehouse_code     = <ls_header>-WarehouseCode
+        warehouse_code     = lr_item->WarehouseCode
         item_code          = lr_item->ItemCode
         quantity           = - lr_item->Quantity
         unit_of_measure    = lr_item->UnitOfMeasure

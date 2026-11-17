@@ -38,6 +38,7 @@ authorization master ( global )
   determination deriveHeaderOnCompanyCode on modify { field CompanyCode; }
   determination deriveDatesOnDocumentDate on modify { field DocumentDate; }
   determination syncItemCurrency on modify { field CurrencyCode; }
+  determination syncItemWarehouse on modify { field WarehouseCode; }
   determination assignDocumentNumber on save { create; }
 
   determination clearMessagesForDates    on modify { field DocumentDate, PostingDate; }
@@ -100,7 +101,7 @@ authorization dependent by _SalesOrder
   field ( readonly, numbering : managed ) ItemUUID;
   field ( readonly ) HeaderUUID;
 
-  field ( readonly ) ItemNo, UnitOfMeasure;
+  field ( readonly ) ItemNo, UnitOfMeasure, WarehouseCode;
   field ( readonly ) NetAmount, VatAmount, GrossAmount;
   field ( readonly ) CreatedBy, CreatedAt, LocalLastChangedBy, LocalLastChangedAt, LastChangedAt;
 
@@ -112,7 +113,7 @@ authorization dependent by _SalesOrder
   determination calcHeaderTotals         on modify { create; update; delete; field NetAmount, GrossAmount; }
 
   determination clearMessagesForItemFields on modify { field Quantity, Price, UnitOfMeasure, VatCode; }
-  determination handleMessagesOnItemModify on modify { field ItemCode; }
+  determination handleMessagesOnItemModify on modify { delete; field ItemCode; }
 
   validation validateItemFields on save { create; update; field ItemCode, Quantity, Price, VatCode; }
 
@@ -124,6 +125,7 @@ authorization dependent by _SalesOrder
     ItemCode           = item_code;
     Quantity           = quantity;
     UnitOfMeasure      = unit_of_measure;
+    WarehouseCode      = warehouse_code;
     CurrencyCode       = currency_code;
     Price              = price;
     NetAmount          = net_amount;

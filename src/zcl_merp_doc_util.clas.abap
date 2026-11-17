@@ -17,12 +17,14 @@ CLASS zcl_merp_doc_util DEFINITION
   PRIVATE SECTION.
 ENDCLASS.
 
-CLASS zcl_merp_doc_util IMPLEMENTATION.
+
+
+CLASS ZCL_MERP_DOC_UTIL IMPLEMENTATION.
+
 
   METHOD get_generic_header_defaults.
     rs_defaults = VALUE #(
       document_date = cl_abap_context_info=>get_system_date( )
     ).
   ENDMETHOD.
-
 ENDCLASS.

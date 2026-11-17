@@ -1,0 +1,58 @@
+projection implementation in class ZBP_MERP_C_STOCKTRANSFER unique;
+strict ( 2 );
+extensible;
+use draft;
+use side effects;
+
+define behavior for ZMERP_C_STOCKTRANSFER alias StockTransfer
+extensible
+use etag
+{
+  use create;
+  use update;
+  use delete;
+
+  use action postDocument;
+  use action cancelDocument;
+  use action unpostDocument;
+
+  use action Edit;
+  use action Activate;
+  use action Discard;
+  use action Resume;
+  use action Prepare;
+
+  use association _Items { create; with draft; }
+
+  side effects
+  {
+    action postDocument affects entity _Items, messages;
+    action cancelDocument affects entity _Items, messages;
+    action unpostDocument affects entity _Items, messages;
+
+    field CompanyCode affects field WarehouseCode, field ReceivingWarehouseCode, entity _Items, messages;
+    field WarehouseCode affects entity _Items, messages;
+    field ReceivingWarehouseCode affects messages;
+
+    entity _Items affects entity _Items, messages;
+
+    field DocumentDate affects field PostingDate, messages;
+    field PostingDate affects messages;
+  }
+}
+
+define behavior for ZMERP_C_STOCKTRANSFERITM alias StockTransferItem
+extensible
+use etag
+{
+  use update;
+  use delete;
+
+  use association _StockTransfer { with draft; }
+
+  side effects
+  {
+    field ItemCode affects field UnitOfMeasure, field StockQuantity, messages;
+    field Quantity affects messages;
+  }
+}

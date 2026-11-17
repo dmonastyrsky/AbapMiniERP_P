@@ -177,6 +177,29 @@ INTERFACE zif_merp_constants
       field_draft   TYPE string VALUE 'ITEMUUID',
     END OF c_gi_itm,
 
+
+    " Stock Transfers Metadata
+    BEGIN OF c_st,
+      prefix        TYPE string VALUE '',
+      length        TYPE i VALUE 10,
+      number_object TYPE cl_numberrange_runtime=>nr_object VALUE 'ZNR_STKTRF',
+      table_db      TYPE string VALUE 'ZMERP_ST_HDR',
+      field_db      TYPE string VALUE 'DOCUMENT_NUMBER',
+      table_draft   TYPE string VALUE 'ZMERP_ST_HDR_D',
+      field_draft   TYPE string VALUE 'DOCUMENTNUMBER',
+    END OF c_st,
+
+    " Stock Transfer Items Metadata
+    BEGIN OF c_st_itm,
+      prefix        TYPE string VALUE '',
+      length        TYPE i VALUE 0,
+      number_object TYPE cl_numberrange_runtime=>nr_object VALUE '',
+      table_db      TYPE string VALUE 'ZMERP_ST_ITM',
+      field_db      TYPE string VALUE 'ITEM_UUID',
+      table_draft   TYPE string VALUE 'ZMERP_ST_ITM_D',
+      field_draft   TYPE string VALUE 'ITEMUUID',
+    END OF c_st_itm,
+
     " Stock Movements Metadata (journal: no draft, no number range)
     BEGIN OF c_stock_mov,
       prefix        TYPE string VALUE '',

@@ -15,7 +15,10 @@ CLASS zcl_merp_md_item_group_sel DEFINITION
       RETURNING VALUE(rt_keys) TYPE zif_merp_md_item_group_sel=>tt_item_group_keys.
 ENDCLASS.
 
-CLASS zcl_merp_md_item_group_sel IMPLEMENTATION.
+
+
+CLASS ZCL_MERP_MD_ITEM_GROUP_SEL IMPLEMENTATION.
+
 
   METHOD zif_merp_md_item_group_sel~read_item_group.
     DATA(lt_item_groups) = zif_merp_md_item_group_sel~read_item_groups(
@@ -34,6 +37,7 @@ CLASS zcl_merp_md_item_group_sel IMPLEMENTATION.
     ENDTRY.
   ENDMETHOD.
 
+
   METHOD zif_merp_md_item_group_sel~read_item_groups.
     DATA(lt_clean_keys) = prepare_keys( it_item_group_keys ).
     IF lt_clean_keys IS INITIAL.
@@ -45,6 +49,15 @@ CLASS zcl_merp_md_item_group_sel IMPLEMENTATION.
       INNER JOIN @lt_clean_keys AS keys ON grp~ItemGroupCode = keys~ItemGroupCode
       INTO TABLE @rt_item_groups.
   ENDMETHOD.
+
+
+  METHOD prepare_keys.
+    rt_keys = it_keys.
+    DELETE rt_keys WHERE ItemGroupCode IS INITIAL.
+    SORT rt_keys BY ItemGroupCode.
+    DELETE ADJACENT DUPLICATES FROM rt_keys COMPARING ItemGroupCode.
+  ENDMETHOD.
+
 
   METHOD zif_merp_md_item_group_sel~read_usages.
     DATA(lt_clean_keys) = prepare_keys( it_item_group_keys ).
@@ -58,13 +71,4 @@ CLASS zcl_merp_md_item_group_sel IMPLEMENTATION.
       INNER JOIN @lt_clean_keys AS keys ON usage~ItemGroupCode = keys~ItemGroupCode
       INTO CORRESPONDING FIELDS OF TABLE @rt_usages.
   ENDMETHOD.
-
-  METHOD prepare_keys.
-    rt_keys = it_keys.
-    DELETE rt_keys WHERE ItemGroupCode IS INITIAL.
-    SORT rt_keys BY ItemGroupCode.
-    DELETE ADJACENT DUPLICATES FROM rt_keys COMPARING ItemGroupCode.
-  ENDMETHOD.
-
 ENDCLASS.
-

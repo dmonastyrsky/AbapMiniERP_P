@@ -1,4 +1,6 @@
 CLASS zbp_merp_r_item DEFINITION PUBLIC ABSTRACT FINAL FOR BEHAVIOR OF zmerp_r_item.
+protected section.
+private section.
 ENDCLASS.
 
 

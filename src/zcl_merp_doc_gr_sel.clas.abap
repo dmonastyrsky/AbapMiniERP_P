@@ -16,7 +16,9 @@ CLASS zcl_merp_doc_gr_sel DEFINITION
 ENDCLASS.
 
 
-CLASS zcl_merp_doc_gr_sel IMPLEMENTATION.
+
+CLASS ZCL_MERP_DOC_GR_SEL IMPLEMENTATION.
+
 
   METHOD zif_merp_doc_gr_sel~read_usages.
     DATA(lt_clean_keys) = prepare_keys( it_document_keys ).
@@ -38,6 +40,4 @@ CLASS zcl_merp_doc_gr_sel IMPLEMENTATION.
     SORT rt_keys BY DocumentUUID.
     DELETE ADJACENT DUPLICATES FROM rt_keys COMPARING DocumentUUID.
   ENDMETHOD.
-
 ENDCLASS.
-

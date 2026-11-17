@@ -8,6 +8,13 @@
 }
 define service ZUI_MERP_STOCK
   provider contracts odata_v4_ui {
-  expose ZMERP_C_STOCK_BALANCE  as StockBalance;
-  expose ZMERP_C_STOCK_MOVEMENT as StockMovement;
+  expose ZMERP_C_STOCK_BALANCE    as StockBalance;
+  expose ZMERP_C_STOCK_MOVEMENT   as StockMovement;
+  expose ZMERP_C_STOCKTRANSFER    as StockTransfer;
+  expose ZMERP_C_STOCKTRANSFERITM as StockTransferItem;
+  expose ZMERP_C_COMPANY_CODE     as CompanyCode;
+  expose ZMERP_C_WAREHOUSE        as Warehouse;
+  expose ZMERP_C_VAT_RATE         as VatRate;
+  expose ZMERP_C_ITEM_GROUP       as ItemGroup;
+  expose ZMERP_C_ITEM             as Item;
 }

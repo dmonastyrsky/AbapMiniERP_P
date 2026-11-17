@@ -53,7 +53,9 @@ CLASS zcl_merp_doc_gr_lifecycle DEFINITION
 ENDCLASS.
 
 
-CLASS zcl_merp_doc_gr_lifecycle IMPLEMENTATION.
+
+CLASS ZCL_MERP_DOC_GR_LIFECYCLE IMPLEMENTATION.
+
 
   METHOD get_posted_statuses.
     rt_statuses = VALUE #(
@@ -62,29 +64,34 @@ CLASS zcl_merp_doc_gr_lifecycle IMPLEMENTATION.
     ).
   ENDMETHOD.
 
+
   METHOD can_edit.
     rv_allowed = xsdbool( iv_status = c_status_new ).
   ENDMETHOD.
+
 
   METHOD can_post.
     rv_allowed = xsdbool( iv_status = c_status_new ).
   ENDMETHOD.
 
+
   METHOD can_cancel.
     rv_allowed = xsdbool( iv_status = c_status_new ).
   ENDMETHOD.
+
 
   METHOD can_unpost.
     rv_allowed = xsdbool( iv_status = c_status_posted ).
   ENDMETHOD.
 
+
   METHOD can_delete.
     rv_allowed = xsdbool( iv_status = c_status_new OR iv_status = c_status_cancelled ).
   ENDMETHOD.
+
 
   METHOD is_posted.
     DATA(lt_posted_statuses) = get_posted_statuses( ).
     rv_allowed = xsdbool( line_exists( lt_posted_statuses[ table_line = iv_status ] ) ).
   ENDMETHOD.
-
 ENDCLASS.

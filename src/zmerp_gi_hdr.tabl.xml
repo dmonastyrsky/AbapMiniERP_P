@@ -43,9 +43,17 @@
     <DD03P>
      <FIELDNAME>.INCLUDE</FIELDNAME>
      <ADMINFIELD>0</ADMINFIELD>
-     <PRECFIELD>ZMERP_S_DOC_HDR_COMMON</PRECFIELD>
+     <PRECFIELD>ZMERP_S_DOC_HDR_BASE</PRECFIELD>
      <MASK>      S</MASK>
-     <DDTEXT>Common Document Header Structure</DDTEXT>
+     <DDTEXT>Document Header Base Structure</DDTEXT>
+     <COMPTYPE>S</COMPTYPE>
+    </DD03P>
+    <DD03P>
+     <FIELDNAME>.INCLUDE</FIELDNAME>
+     <ADMINFIELD>0</ADMINFIELD>
+     <PRECFIELD>ZMERP_S_DOC_HDR_COMMERCIAL</PRECFIELD>
+     <MASK>      S</MASK>
+     <DDTEXT>Commercial Document Header Structure</DDTEXT>
      <COMPTYPE>S</COMPTYPE>
     </DD03P>
     <DD03P>

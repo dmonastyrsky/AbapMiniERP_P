@@ -72,7 +72,9 @@ annotate view ZMERP_C_STOCK_MOVEMENT with
   @UI.hidden: true
   ItemDescription;
 
-  @UI.hidden: true
+  @UI.lineItem: [{ position: 35, importance: #HIGH }]
+  @UI.identification: [{ position: 35 }]
+  @UI.selectionField: [{ position: 35 }]
   DocumentType;
 
   @UI.hidden: true

@@ -31,11 +31,15 @@ CLASS zcl_merp_format_util DEFINITION
 
 ENDCLASS.
 
-CLASS zcl_merp_format_util IMPLEMENTATION.
+
+
+CLASS ZCL_MERP_FORMAT_UTIL IMPLEMENTATION.
+
 
   METHOD add_leading_zeros.
     rv_code = |{ iv_value WIDTH = iv_length PAD = '0' ALIGN = RIGHT }|.
   ENDMETHOD.
+
 
   METHOD format_code.
     TRY.
@@ -66,5 +70,4 @@ CLASS zcl_merp_format_util IMPLEMENTATION.
 
     rv_code = |{ iv_prefix }{ lv_padded }|.
   ENDMETHOD.
-
 ENDCLASS.

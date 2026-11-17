@@ -84,6 +84,19 @@ CLASS zcl_merp_initial_setup DEFINITION
              lines       TYPE tt_lines,
            END OF ty_gi.
 
+    "! Stock transfer definition (master data by seed order, dates relative to today)
+    TYPES: BEGIN OF ty_st,
+             company_no             TYPE i,
+             warehouse_no           TYPE i,
+             receiving_warehouse_no TYPE i,
+             days_ago               TYPE i,
+             responsible            TYPE zmerp_resp_person,
+             remarks                TYPE zmerp_remarks,
+             post                   TYPE abap_bool,
+             cancel                 TYPE abap_bool,
+             lines                  TYPE tt_lines,
+           END OF ty_st.
+
     TYPES: BEGIN OF ty_quantity,
              item_code TYPE zmerp_item_code,
              quantity  TYPE zmerp_quantity,
@@ -190,6 +203,12 @@ CLASS zcl_merp_initial_setup DEFINITION
         is_codes TYPE ty_codes
         out      TYPE REF TO if_oo_adt_classrun_out OPTIONAL .
 
+    "! Creates the stock transfers of company 3000 (and the receipt they need in the receiving warehouse).
+    CLASS-METHODS setup_transfer_documents
+      IMPORTING
+        is_codes TYPE ty_codes
+        out      TYPE REF TO if_oo_adt_classrun_out OPTIONAL .
+
     "! Creates a purchase order via EML and optionally releases it.
     "! @parameter is_po      | Purchase order definition
     "! @parameter rv_po_uuid | Key of the created purchase order (initial if it failed)
@@ -230,459 +249,461 @@ CLASS zcl_merp_initial_setup DEFINITION
         is_gi    TYPE ty_gi
         out      TYPE REF TO if_oo_adt_classrun_out OPTIONAL .
 
+    "! Creates a stock transfer via EML and optionally posts or cancels it.
+    "! @parameter is_st | Stock transfer definition
+    CLASS-METHODS create_stock_transfer
+      IMPORTING
+        is_codes TYPE ty_codes
+        is_st    TYPE ty_st
+        out      TYPE REF TO if_oo_adt_classrun_out OPTIONAL .
+
 ENDCLASS.
 
 
 
-CLASS zcl_merp_initial_setup IMPLEMENTATION.
+CLASS ZCL_MERP_INITIAL_SETUP IMPLEMENTATION.
+
+
+  METHOD setup_documents.
+    " Purchasing first: the sales documents and the stock transfers use the stock of the goods receipts
+    setup_purchase_documents( is_codes = is_codes out = out ).
+    setup_sales_documents( is_codes = is_codes out = out ).
+    setup_transfer_documents( is_codes = is_codes out = out ).
+  ENDMETHOD.
 
   METHOD if_oo_adt_classrun~main.
     execute( out ).
   ENDMETHOD.
 
-  METHOD execute.
-    write_log( iv_text = '=== Starting Initial Data Setup for Mini ERP ===' out = out ).
-
-    " 1. Reset: all tables (master data, documents, stock movements) and number range levels.
-    "    Committed before EML: number assignment (number_get) must not wait for our own
-    "    uncommitted interval changes
-    zcl_merp_clear_all_data=>execute( out ).
-    COMMIT WORK.
-
-    " 2. Master data via EML
-    DATA(ls_codes) = setup_master_data( out ).
-    IF ls_codes IS INITIAL.
-      write_log( iv_text = '=== Initial Data Setup stopped ===' out = out ).
-      RETURN.
-    ENDIF.
-
-    " 3. Documents via EML (the business logic assigns numbers, amounts, stock and statuses)
-    setup_documents( is_codes = ls_codes out = out ).
-
-    write_log( iv_text = '==== Initial Data Setup Completed ====' out = out ).
-  ENDMETHOD.
-
-  METHOD write_failure.
-    write_log( iv_text = iv_text out = out ).
-    LOOP AT it_messages INTO DATA(lo_message) WHERE table_line IS BOUND.
-      write_log( iv_text = |    - { lo_message->if_message~get_text( ) }| out = out ).
-    ENDLOOP.
-  ENDMETHOD.
-
-  METHOD write_log.
-    IF out IS BOUND.
-      out->write( iv_text ).
-    ENDIF.
-  ENDMETHOD.
 
   METHOD get_code.
     rv_code = VALUE #( it_codes[ iv_no ] OPTIONAL ).
   ENDMETHOD.
 
-  METHOD create_company_codes.
-    TYPES tt_create TYPE TABLE FOR CREATE zmerp_r_company_code.
 
-    " Company codes are entered manually (no number range)
-    DATA(lt_create) = VALUE tt_create(
-      ( CompanyCode   = '1000'
-        CompanyName   = 'MERP Deutschland GmbH'
-        CompanyPrefix = 'DE'
-        CurrencyCode  = 'EUR'
-        Country       = 'DE' )
-
-      ( CompanyCode   = '2000'
-        CompanyName   = 'MERP Trading GmbH'
-        CompanyPrefix = 'TR'
-        CurrencyCode  = 'EUR'
-        Country       = 'DE' )
-
-      ( CompanyCode   = '3000'
-        CompanyName   = 'Modevi GmbH'
-        CompanyPrefix = 'MD'
-        CurrencyCode  = 'EUR'
-        Country       = 'DE' )
-
-      ( CompanyCode   = '4000'
-        CompanyName   = 'MERP Inactive Services GmbH'
-        CompanyPrefix = 'IS'
-        CurrencyCode  = 'EUR'
-        Country       = 'DE'
-        IsBlocked     = abap_true )
-    ).
-
-    LOOP AT lt_create ASSIGNING FIELD-SYMBOL(<ls_create>).
-      <ls_create>-%cid = |COMPANY_{ sy-tabix }|.
-    ENDLOOP.
-
-    MODIFY ENTITIES OF zmerp_r_company_code
-      ENTITY CompanyCode
-      CREATE FIELDS ( CompanyCode CompanyName CompanyPrefix CurrencyCode Country IsBlocked )
-      WITH lt_create
-      MAPPED DATA(ls_mapped)
-      FAILED DATA(ls_failed)
-      REPORTED DATA(ls_reported).
-
-    IF ls_failed IS INITIAL.
-      COMMIT ENTITIES RESPONSE OF zmerp_r_company_code
-        FAILED DATA(ls_commit_failed)
-        REPORTED DATA(ls_commit_reported).
+    METHOD create_goods_issue.
+    IF is_gi-so_uuid IS INITIAL.
+      write_log( iv_text = '[Goods Issue]: Skipped, the sales order was not created.' out = out ).
+      RETURN.
     ENDIF.
 
-    IF ls_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
+    DATA(lv_date) = CONV d( cl_abap_context_info=>get_system_date( ) - is_gi-days_ago ).
+
+    " 1. Header with the sales order reference: header fields and items (open quantities)
+    "    are derived by the goods issue logic (deriveDocFromSalesOrder)
+    MODIFY ENTITIES OF zmerp_r_goodsissue
+      ENTITY GoodsIssue
+      CREATE FIELDS ( SoReferenceUUID DocumentDate PostingDate ResponsiblePerson Remarks )
+      WITH VALUE #( ( %cid              = 'GI'
+                      SoReferenceUUID   = is_gi-so_uuid
+                      DocumentDate      = lv_date
+                      PostingDate       = lv_date
+                      ResponsiblePerson = is_gi-responsible
+                      Remarks           = is_gi-remarks ) )
+      MAPPED DATA(ls_mapped).
+
+    DATA(lv_gi_uuid) = VALUE #( ls_mapped-goodsissue[ 1 ]-DocumentUUID OPTIONAL ).
+
+    " 2. Partial issue: the listed items get the given quantity, quantity 0 removes the line,
+    "    all others keep the open quantity
+    IF is_gi-lines IS NOT INITIAL AND lv_gi_uuid IS NOT INITIAL.
+      DATA(lt_quantities) = VALUE tt_quantities(
+        FOR gi_line IN is_gi-lines ( item_code = get_code( it_codes = is_codes-items iv_no = gi_line-item_no )
+                                     quantity  = gi_line-quantity ) ).
+
+      READ ENTITIES OF zmerp_r_goodsissue
+        ENTITY GoodsIssue BY \_Items
+        FIELDS ( ItemCode )
+        WITH VALUE #( ( DocumentUUID = lv_gi_uuid ) )
+        RESULT DATA(lt_items).
+
+      MODIFY ENTITIES OF zmerp_r_goodsissue
+        ENTITY GoodsIssueItem
+          UPDATE FIELDS ( Quantity )
+          WITH VALUE #( FOR gi_item IN lt_items
+                        FOR qty IN lt_quantities WHERE ( item_code = gi_item-ItemCode AND quantity > 0 )
+                        ( %tky     = gi_item-%tky
+                          Quantity = qty-quantity ) )
+          DELETE FROM VALUE #( FOR gi_item IN lt_items
+                               FOR qty IN lt_quantities WHERE ( item_code = gi_item-ItemCode AND quantity = 0 )
+                               ( %tky = gi_item-%tky ) ).
+    ENDIF.
+
+    COMMIT ENTITIES RESPONSE OF zmerp_r_goodsissue
+      FAILED DATA(ls_save_failed)
+      REPORTED DATA(ls_save_reported).
+
+    IF ls_save_failed IS NOT INITIAL OR lv_gi_uuid IS INITIAL.
       write_failure(
-        iv_text     = '[Company Code]: Creation failed:'
-        it_messages = VALUE #( BASE VALUE #( FOR rep IN ls_reported-companycode ( rep-%msg ) )
-                               FOR com IN ls_commit_reported-companycode ( com-%msg ) )
+        iv_text     = '[Goods Issue]: Saving failed:'
+        it_messages = VALUE #( BASE VALUE #( FOR save_hdr IN ls_save_reported-goodsissue ( save_hdr-%msg ) )
+                               FOR save_itm IN ls_save_reported-goodsissueitem ( save_itm-%msg ) )
         out         = out ).
       ROLLBACK ENTITIES.
       RETURN.
     ENDIF.
 
-    rt_codes = VALUE #( FOR row IN lt_create ( CONV #( ls_mapped-companycode[ %cid = row-%cid ]-CompanyCode ) ) ).
-    write_log( iv_text = |[Company Code]: { lines( rt_codes ) } records created.| out = out ).
+    " 3. Posting: stock movements and the sales order status follow the goods issue logic
+    IF is_gi-post = abap_true.
+      MODIFY ENTITIES OF zmerp_r_goodsissue
+        ENTITY GoodsIssue
+        EXECUTE postDocument
+        FROM VALUE #( ( DocumentUUID = lv_gi_uuid ) )
+        FAILED DATA(ls_post_failed)
+        REPORTED DATA(ls_post_reported).
+
+      IF ls_post_failed IS INITIAL.
+        COMMIT ENTITIES RESPONSE OF zmerp_r_goodsissue
+          FAILED DATA(ls_commit_failed)
+          REPORTED DATA(ls_commit_reported).
+      ENDIF.
+
+      IF ls_post_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
+        write_failure(
+          iv_text     = '[Goods Issue]: Posting failed:'
+          it_messages = VALUE #( BASE VALUE #( BASE VALUE #( FOR post_hdr IN ls_post_reported-goodsissue ( post_hdr-%msg ) )
+                                               FOR post_itm IN ls_post_reported-goodsissueitem ( post_itm-%msg ) )
+                                 FOR com_hdr IN ls_commit_reported-goodsissue ( com_hdr-%msg ) )
+          out         = out ).
+        ROLLBACK ENTITIES.
+      ENDIF.
+    ENDIF.
+
+    SELECT SINGLE gi~document_number, gi~status, so~document_number AS so_number, so~status AS so_status
+      FROM zmerp_gi_hdr AS gi
+      INNER JOIN zmerp_so_hdr AS so ON so~document_uuid = gi~so_reference_uuid
+      WHERE gi~document_uuid = @lv_gi_uuid
+      INTO @DATA(ls_gi).
+
+    write_log( iv_text = |[Goods Issue]: { ls_gi-document_number } for SO { ls_gi-so_number } created, | &&
+                         |status { ls_gi-status }; SO status { ls_gi-so_status }.|
+               out     = out ).
   ENDMETHOD.
 
-  METHOD create_vat_rates.
-    TYPES tt_create TYPE TABLE FOR CREATE zmerp_r_vat_rate.
+    METHOD create_stock_transfer.
+    DATA(lv_date)         = CONV d( cl_abap_context_info=>get_system_date( ) - is_st-days_ago ).
+    DATA(lv_company_code) = get_code( it_codes = is_codes-companies iv_no = is_st-company_no ).
 
-    " VAT codes come from the number range (early numbering)
-    DATA(lt_create) = VALUE tt_create(
-      ( Description = 'VAT 0%'
-        Percentage  = '0.00' )
+    " 1. Header and items: item numbers, units and the warehouses of the lines are derived by the stock transfer logic
+    MODIFY ENTITIES OF zmerp_r_stocktransfer
+      ENTITY StockTransfer
+        CREATE FIELDS ( CompanyCode WarehouseCode ReceivingWarehouseCode DocumentDate PostingDate
+                        ResponsiblePerson Remarks )
+        WITH VALUE #( ( %cid                   = 'ST'
+                        CompanyCode            = lv_company_code
+                        WarehouseCode          = get_code( it_codes = is_codes-warehouses iv_no = is_st-warehouse_no )
+                        ReceivingWarehouseCode = get_code( it_codes = is_codes-warehouses iv_no = is_st-receiving_warehouse_no )
+                        DocumentDate           = lv_date
+                        PostingDate            = lv_date
+                        ResponsiblePerson      = is_st-responsible
+                        Remarks                = is_st-remarks ) )
+        CREATE BY \_Items
+        FIELDS ( ItemCode Quantity )
+        WITH VALUE #( ( %cid_ref = 'ST'
+                        %target  = VALUE #( FOR st_line IN is_st-lines INDEX INTO lv_index
+                                            ( %cid     = |ST_ITEM_{ lv_index }|
+                                              ItemCode = get_code( it_codes = is_codes-items iv_no = st_line-item_no )
+                                              Quantity = st_line-quantity ) ) ) )
+      MAPPED DATA(ls_mapped).
 
-      ( Description = 'VAT 7%'
-        Percentage  = '7.00' )
+    DATA(lv_st_uuid) = VALUE #( ls_mapped-stocktransfer[ 1 ]-DocumentUUID OPTIONAL ).
 
-      ( Description = 'VAT 19%'
-        Percentage  = '19.00' )
+    COMMIT ENTITIES RESPONSE OF zmerp_r_stocktransfer
+      FAILED DATA(ls_save_failed)
+      REPORTED DATA(ls_save_reported).
 
-      ( Description = 'VAT 16% (Historical)'
-        Percentage  = '16.00'
-        IsBlocked   = abap_true )
-    ).
-
-    LOOP AT lt_create ASSIGNING FIELD-SYMBOL(<ls_create>).
-      <ls_create>-%cid = |VAT_{ sy-tabix }|.
-    ENDLOOP.
-
-    MODIFY ENTITIES OF zmerp_r_vat_rate
-      ENTITY VatRate
-      CREATE FIELDS ( Description Percentage IsBlocked )
-      WITH lt_create
-      MAPPED DATA(ls_mapped)
-      FAILED DATA(ls_failed)
-      REPORTED DATA(ls_reported).
-
-    IF ls_failed IS INITIAL.
-      COMMIT ENTITIES RESPONSE OF zmerp_r_vat_rate
-        FAILED DATA(ls_commit_failed)
-        REPORTED DATA(ls_commit_reported).
-    ENDIF.
-
-    IF ls_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
+    IF ls_save_failed IS NOT INITIAL OR lv_st_uuid IS INITIAL.
       write_failure(
-        iv_text     = '[VAT Rate]: Creation failed:'
-        it_messages = VALUE #( BASE VALUE #( FOR rep IN ls_reported-vatrate ( rep-%msg ) )
-                               FOR com IN ls_commit_reported-vatrate ( com-%msg ) )
+        iv_text     = |[Stock Transfer]: Creation for company { lv_company_code } failed:|
+        it_messages = VALUE #( BASE VALUE #( FOR save_hdr IN ls_save_reported-stocktransfer ( save_hdr-%msg ) )
+                               FOR save_itm IN ls_save_reported-stocktransferitem ( save_itm-%msg ) )
         out         = out ).
       ROLLBACK ENTITIES.
       RETURN.
     ENDIF.
 
-    rt_codes = VALUE #( FOR row IN lt_create ( CONV #( ls_mapped-vatrate[ %cid = row-%cid ]-VatCode ) ) ).
-    write_log( iv_text = |[VAT Rate]: { lines( rt_codes ) } records created.| out = out ).
+    " 2. Posting: the stock movements follow the stock transfer logic
+    IF is_st-post = abap_true.
+      MODIFY ENTITIES OF zmerp_r_stocktransfer
+        ENTITY StockTransfer
+        EXECUTE postDocument
+        FROM VALUE #( ( DocumentUUID = lv_st_uuid ) )
+        FAILED DATA(ls_post_failed)
+        REPORTED DATA(ls_post_reported).
+
+      IF ls_post_failed IS INITIAL.
+        COMMIT ENTITIES RESPONSE OF zmerp_r_stocktransfer
+          FAILED DATA(ls_post_commit_failed)
+          REPORTED DATA(ls_post_commit_reported).
+      ENDIF.
+
+      IF ls_post_failed IS NOT INITIAL OR ls_post_commit_failed IS NOT INITIAL.
+        write_failure(
+          iv_text     = '[Stock Transfer]: Posting failed:'
+          it_messages = VALUE #( BASE VALUE #( BASE VALUE #( FOR post_hdr IN ls_post_reported-stocktransfer ( post_hdr-%msg ) )
+                                               FOR post_itm IN ls_post_reported-stocktransferitem ( post_itm-%msg ) )
+                                 FOR com_hdr IN ls_post_commit_reported-stocktransfer ( com_hdr-%msg ) )
+          out         = out ).
+        ROLLBACK ENTITIES.
+      ENDIF.
+    ENDIF.
+
+    " 3. Cancellation ('New' -> 'Cancelled')
+    IF is_st-cancel = abap_true.
+      MODIFY ENTITIES OF zmerp_r_stocktransfer
+        ENTITY StockTransfer
+        EXECUTE cancelDocument
+        FROM VALUE #( ( DocumentUUID = lv_st_uuid ) )
+        FAILED DATA(ls_cancel_failed)
+        REPORTED DATA(ls_cancel_reported).
+
+      IF ls_cancel_failed IS INITIAL.
+        COMMIT ENTITIES RESPONSE OF zmerp_r_stocktransfer
+          FAILED DATA(ls_cancel_commit_failed)
+          REPORTED DATA(ls_cancel_commit_reported).
+      ENDIF.
+
+      IF ls_cancel_failed IS NOT INITIAL OR ls_cancel_commit_failed IS NOT INITIAL.
+        write_failure(
+          iv_text     = '[Stock Transfer]: Cancellation failed:'
+          it_messages = VALUE #( BASE VALUE #( FOR can_hdr IN ls_cancel_reported-stocktransfer ( can_hdr-%msg ) )
+                                 FOR com_hdr IN ls_cancel_commit_reported-stocktransfer ( com_hdr-%msg ) )
+          out         = out ).
+        ROLLBACK ENTITIES.
+      ENDIF.
+    ENDIF.
+
+    SELECT SINGLE document_number, status
+      FROM zmerp_st_hdr
+      WHERE document_uuid = @lv_st_uuid
+      INTO @DATA(ls_st).
+
+    write_log( iv_text = |[Stock Transfer]: { ls_st-document_number } created, status { ls_st-status }.| out = out ).
   ENDMETHOD.
 
-  METHOD create_item_groups.
-    TYPES tt_create TYPE TABLE FOR CREATE zmerp_r_item_group.
+  METHOD setup_sales_documents.
+    " Readable amounts as in purchasing: every line net amount is a multiple of 100, so VAT and gross
+    " have no cents. Selling prices are above the purchase prices (margin against the moving average cost).
+    " The orders are placed in warehouses with stock from the purchasing documents, except SO 5.
+    " Issue values follow the moving average cost; SO 6 shows a value with cents (stock bought at two prices).
 
-    DATA(lv_vat7)  = get_code( it_codes = is_codes-vat_rates iv_no = 2 ).
-    DATA(lv_vat19) = get_code( it_codes = is_codes-vat_rates iv_no = 3 ).
+    " SO 1 (1000, Media-Saturn, Hauptlager Kusel): TVs, cables and warranty, stock of PO 1
+    DATA(lv_so1) = create_sales_order(
+      is_so = VALUE #( company_no   = 1      warehouse_no = 1 partner_no = 6
+                       days_ago     = 1
+                       customer_ref = 'MS-2026-0815'
+                       responsible  = 'BRAUN_L'
+                       remarks      = 'TV promotion'
+                       lines        = VALUE #( ( item_no = 7  quantity = 2 price = '1500.00' )
+                                               ( item_no = 10 quantity = 4 price = '25.00' )
+                                               ( item_no = 14 quantity = 2 price = '150.00' ) ) )
+      is_codes = is_codes
+      out      = out ).
 
-    DATA(lt_create) = VALUE tt_create(
-      ( Description    = 'Major Home Appliances'
-        DefaultVatCode = lv_vat19 )
+    " SO 2 (1000, Expert, Hauptlager Frankfurt): washing machines with installation, stock of PO 2;
+    "   the dishwasher has no stock yet (it stays open after the goods issue)
+    DATA(lv_so2) = create_sales_order(
+      is_so = VALUE #( company_no   = 1      warehouse_no = 2 partner_no = 7
+                       days_ago     = 1
+                       customer_ref = 'EXP-55102'
+                       responsible  = 'BRAUN_L'
+                       remarks      = 'Washing machines with installation'
+                       lines        = VALUE #( ( item_no = 1  quantity = 2 price = '750.00' )
+                                               ( item_no = 11 quantity = 5 price = '20.00' )
+                                               ( item_no = 13 quantity = 2 price = '50.00' )
+                                               ( item_no = 3  quantity = 1 price = '900.00' ) ) )
+      is_codes = is_codes
+      out      = out ).
 
-      ( Description    = 'Small Kitchen Appliances'
-        DefaultVatCode = lv_vat19 )
+    " SO 3 (2000, Conrad as customer, Lager München): audio, stock of PO 5
+    DATA(lv_so3) = create_sales_order(
+      is_so = VALUE #( company_no   = 2      warehouse_no = 7 partner_no = 12
+                       days_ago     = 0
+                       customer_ref = 'CON-7781'
+                       responsible  = 'FISCHER_K'
+                       remarks      = 'Audio for the Munich store'
+                       lines        = VALUE #( ( item_no = 8 quantity = 4 price = '350.00' )
+                                               ( item_no = 9 quantity = 2 price = '450.00' ) ) )
+      is_codes = is_codes
+      out      = out ).
 
-      ( Description    = 'Consumer Electronics'
-        DefaultVatCode = lv_vat19 )
+    " SO 4 (3000, Euronics): the customer withdrew the order -> 'Rejected'
+    create_sales_order(
+      is_so = VALUE #( company_no   = 3      warehouse_no = 9 partner_no = 8
+                       days_ago     = 1
+                       customer_ref = 'EU-3301'
+                       responsible  = 'WEBER_J'
+                       remarks      = 'Customer withdrew the order'
+                       reject       = abap_true
+                       lines        = VALUE #( ( item_no = 7 quantity = 1 price = '900.00' ) ) )
+      is_codes = is_codes
+      out      = out ).
 
-      ( Description    = 'Accessories & Supplies'
-        DefaultVatCode = lv_vat19 )
+    " SO 5 (1000, Küchenstudio Schmidt, Lager Berlin): no stock in Berlin
+    DATA(lv_so5) = create_sales_order(
+      is_so = VALUE #( company_no   = 1      warehouse_no = 3 partner_no = 10
+                       days_ago     = 0
+                       customer_ref = 'KS-118'
+                       responsible  = 'SCHMIDT_A'
+                       remarks      = 'Espresso machines, waiting for stock'
+                       lines        = VALUE #( ( item_no = 4  quantity = 2 price = '600.00' )
+                                               ( item_no = 12 quantity = 4 price = '25.00' ) ) )
+      is_codes = is_codes
+      out      = out ).
 
-      ( Description    = 'Installation & Support Services'
-        DefaultVatCode = lv_vat7 )
+    " Goods issues: stock is issued at moving average cost (3 TVs of PO 1 = 3599.97 -> 1199.99 each)
 
-      ( Description    = 'Legacy Office Equipment'
-        DefaultVatCode = lv_vat19
-        IsBlocked      = abap_true )
-    ).
+    " SO 1: two goods issues -> 'In Process' after the first, 'Completed' after the second
+    create_goods_issue(
+      is_gi = VALUE #( so_uuid     = lv_so1
+                       days_ago    = 0
+                       responsible = 'BRAUN_L'
+                       remarks     = 'Issue 1 of 2: 1 TV, 2 cables, 1 h warranty'
+                       post        = abap_true
+                       lines       = VALUE #( ( item_no = 7  quantity = 1 )
+                                              ( item_no = 10 quantity = 2 )
+                                              ( item_no = 14 quantity = 1 ) ) )
+      is_codes = is_codes
+      out      = out ).
 
-    LOOP AT lt_create ASSIGNING FIELD-SYMBOL(<ls_create>).
-      <ls_create>-%cid = |ITEM_GROUP_{ sy-tabix }|.
+    create_goods_issue(
+      is_gi = VALUE #( so_uuid     = lv_so1
+                       days_ago    = 0
+                       responsible = 'BRAUN_L'
+                       remarks     = 'Issue 2 of 2: the rest of the order'
+                       post        = abap_true )
+      is_codes = is_codes
+      out      = out ).
+
+    " SO 2: everything with stock is issued, the dishwasher line is removed -> 'In Process'
+    create_goods_issue(
+      is_gi = VALUE #( so_uuid     = lv_so2
+                       days_ago    = 0
+                       responsible = 'BRAUN_L'
+                       remarks     = 'Dishwasher follows when it is in stock'
+                       post        = abap_true
+                       lines       = VALUE #( ( item_no = 3 quantity = 0 ) ) )
+      is_codes = is_codes
+      out      = out ).
+
+    " SO 3: complete goods issue -> 'Completed'
+    create_goods_issue(
+      is_gi = VALUE #( so_uuid     = lv_so3
+                       days_ago    = 0
+                       responsible = 'FISCHER_K'
+                       remarks     = 'Complete delivery'
+                       post        = abap_true )
+      is_codes = is_codes
+      out      = out ).
+
+    " SO 5: the goods issue is prepared, posting fails on the stock check (expected) -> goods issue 'New'
+    create_goods_issue(
+      is_gi = VALUE #( so_uuid     = lv_so5
+                       days_ago    = 0
+                       responsible = 'SCHMIDT_A'
+                       remarks     = 'Waiting for stock in Berlin (posting fails as expected)'
+                       post        = abap_true )
+      is_codes = is_codes
+      out      = out ).
+
+    " SO 6 (3000, Elektro-Service Müller, Hauptlager Kusel): soundbars of PO 8 and PO 9,
+    "   stock 3 pieces for 1000.00. The goods issue of 1 piece is valued at 1000.00 / 3 = 333.33
+    "   (stock 2 pieces for 666.67) -> 'In Process'. The rest stays open for a live demo:
+    "   issuing the last 2 pieces takes the whole remaining value 666.67, the stock closes at 0.00
+    DATA(lv_so6) = create_sales_order(
+      is_so = VALUE #( company_no   = 3      warehouse_no = 9 partner_no = 9
+                       days_ago     = 0
+                       customer_ref = 'ESM-2026-31'
+                       responsible  = 'WEBER_J'
+                       remarks      = 'Soundbars for a hotel project'
+                       lines        = VALUE #( ( item_no = 8 quantity = 3 price = '500.00' ) ) )
+      is_codes = is_codes
+      out      = out ).
+
+    create_goods_issue(
+      is_gi = VALUE #( so_uuid     = lv_so6
+                       days_ago    = 0
+                       responsible = 'WEBER_J'
+                       remarks     = 'Issue 1 of 2: moving average cost with cents'
+                       post        = abap_true
+                       lines       = VALUE #( ( item_no = 8 quantity = 1 ) ) )
+      is_codes = is_codes
+      out      = out ).
+
+    " Summary: resulting sales order statuses
+    SELECT document_number, status
+      FROM zmerp_so_hdr
+      ORDER BY document_number
+      INTO TABLE @DATA(lt_so_status).
+
+    write_log( iv_text = '[Summary] Sales order statuses:' out = out ).
+    LOOP AT lt_so_status REFERENCE INTO DATA(lr_so_status).
+      write_log( iv_text = |    { lr_so_status->document_number }: { lr_so_status->status }| out = out ).
     ENDLOOP.
-
-    MODIFY ENTITIES OF zmerp_r_item_group
-      ENTITY ItemGroup
-      CREATE FIELDS ( Description DefaultVatCode IsBlocked )
-      WITH lt_create
-      MAPPED DATA(ls_mapped)
-      FAILED DATA(ls_failed)
-      REPORTED DATA(ls_reported).
-
-    IF ls_failed IS INITIAL.
-      COMMIT ENTITIES RESPONSE OF zmerp_r_item_group
-        FAILED DATA(ls_commit_failed)
-        REPORTED DATA(ls_commit_reported).
-    ENDIF.
-
-    IF ls_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
-      write_failure(
-        iv_text     = '[Item Group]: Creation failed:'
-        it_messages = VALUE #( BASE VALUE #( FOR rep IN ls_reported-itemgroup ( rep-%msg ) )
-                               FOR com IN ls_commit_reported-itemgroup ( com-%msg ) )
-        out         = out ).
-      ROLLBACK ENTITIES.
-      RETURN.
-    ENDIF.
-
-    rt_codes = VALUE #( FOR row IN lt_create ( CONV #( ls_mapped-itemgroup[ %cid = row-%cid ]-ItemGroupCode ) ) ).
-    write_log( iv_text = |[Item Group]: { lines( rt_codes ) } records created.| out = out ).
   ENDMETHOD.
 
-  METHOD create_warehouses.
-    TYPES tt_create TYPE TABLE FOR CREATE zmerp_r_warehouse.
+  METHOD setup_transfer_documents.
+    " Company 3000: Hauptlager Kusel holds the TVs of PO 7 at 599.99. Lager Kaiserslautern first receives
+    " one TV at 700.00 (PO 10), so the transfer changes its moving average cost (ST2):
+    "   ST 1: 1 TV Kusel -> Kaiserslautern at 599.99 -> Kaiserslautern 2 TVs for 1299.99 -> 'Posted'
+    "   ST 2: 1 TV stays 'New' for a live demo; ST 3: 1 HDMI cable -> 'Cancelled'
+    DATA(lv_po10) = create_purchase_order(
+      is_po = VALUE #( company_no   = 3      warehouse_no = 10 partner_no = 4
+                       days_ago     = 2      delivery_in  = 1
+                       responsible  = 'WEBER_J'
+                       remarks      = 'TV for Kaiserslautern'
+                       release      = abap_true
+                       lines        = VALUE #( ( item_no = 7 quantity = 1 price = '700.00' ) ) )
+      is_codes = is_codes
+      out      = out ).
 
-    DATA(lv_company1) = get_code( it_codes = is_codes-companies iv_no = 1 ).
-    DATA(lv_company2) = get_code( it_codes = is_codes-companies iv_no = 2 ).
-    DATA(lv_company3) = get_code( it_codes = is_codes-companies iv_no = 3 ).
+    create_goods_receipt(
+      is_gr = VALUE #( po_uuid     = lv_po10
+                       days_ago    = 1
+                       responsible = 'WEBER_J'
+                       remarks     = 'Complete delivery'
+                       post        = abap_true )
+      is_codes = is_codes
+      out      = out ).
 
-    DATA(lt_create) = VALUE tt_create(
-      ( WarehouseName = 'Hauptlager Kusel'
-        CompanyCode   = lv_company1 )
+    create_stock_transfer(
+      is_st = VALUE #( company_no = 3 warehouse_no = 9 receiving_warehouse_no = 10
+                       days_ago    = 0
+                       responsible = 'WEBER_J'
+                       remarks     = 'TV for the showroom in Kaiserslautern'
+                       post        = abap_true
+                       lines       = VALUE #( ( item_no = 7 quantity = 1 ) ) )
+      is_codes = is_codes
+      out      = out ).
 
-      ( WarehouseName = 'Hauptlager Frankfurt'
-        CompanyCode   = lv_company1 )
+    create_stock_transfer(
+      is_st = VALUE #( company_no = 3 warehouse_no = 9 receiving_warehouse_no = 10
+                       days_ago    = 0
+                       responsible = 'WEBER_J'
+                       remarks     = 'Second TV, waiting for posting'
+                       lines       = VALUE #( ( item_no = 7 quantity = 1 ) ) )
+      is_codes = is_codes
+      out      = out ).
 
-      ( WarehouseName = 'Lager Berlin'
-        CompanyCode   = lv_company1 )
+    create_stock_transfer(
+      is_st = VALUE #( company_no = 3 warehouse_no = 9 receiving_warehouse_no = 10
+                       days_ago    = 0
+                       responsible = 'WEBER_J'
+                       remarks     = 'Cable not needed any more'
+                       cancel      = abap_true
+                       lines       = VALUE #( ( item_no = 10 quantity = 1 ) ) )
+      is_codes = is_codes
+      out      = out ).
 
-      ( WarehouseName = 'Retourlager Frankfurt'
-        CompanyCode   = lv_company1 )
+    SELECT document_number, status
+      FROM zmerp_st_hdr
+      ORDER BY document_number
+      INTO TABLE @DATA(lt_st_status).
 
-      ( WarehouseName = 'Altlager Frankfurt'
-        CompanyCode   = lv_company1
-        IsBlocked     = abap_true )
-
-      ( WarehouseName = 'Hauptlager Hamburg'
-        CompanyCode   = lv_company2 )
-
-      ( WarehouseName = 'Lager München'
-        CompanyCode   = lv_company2 )
-
-      ( WarehouseName = 'Transitlager Hamburg'
-        CompanyCode   = lv_company2 )
-
-      ( WarehouseName = 'Hauptlager Kusel'
-        CompanyCode   = lv_company3 )
-
-      ( WarehouseName = 'Lager Kaiserslautern'
-        CompanyCode   = lv_company3 )
-    ).
-
-    LOOP AT lt_create ASSIGNING FIELD-SYMBOL(<ls_create>).
-      <ls_create>-%cid = |WAREHOUSE_{ sy-tabix }|.
+    write_log( iv_text = '[Summary] Stock transfer statuses:' out = out ).
+    LOOP AT lt_st_status REFERENCE INTO DATA(lr_st_status).
+      write_log( iv_text = |    { lr_st_status->document_number }: { lr_st_status->status }| out = out ).
     ENDLOOP.
-
-    MODIFY ENTITIES OF zmerp_r_warehouse
-      ENTITY Warehouse
-      CREATE FIELDS ( WarehouseName CompanyCode IsBlocked )
-      WITH lt_create
-      MAPPED DATA(ls_mapped)
-      FAILED DATA(ls_failed)
-      REPORTED DATA(ls_reported).
-
-    IF ls_failed IS INITIAL.
-      COMMIT ENTITIES RESPONSE OF zmerp_r_warehouse
-        FAILED DATA(ls_commit_failed)
-        REPORTED DATA(ls_commit_reported).
-    ENDIF.
-
-    IF ls_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
-      write_failure(
-        iv_text     = '[Warehouse]: Creation failed:'
-        it_messages = VALUE #( BASE VALUE #( FOR rep IN ls_reported-warehouse ( rep-%msg ) )
-                               FOR com IN ls_commit_reported-warehouse ( com-%msg ) )
-        out         = out ).
-      ROLLBACK ENTITIES.
-      RETURN.
-    ENDIF.
-
-    rt_codes = VALUE #( FOR row IN lt_create ( CONV #( ls_mapped-warehouse[ %cid = row-%cid ]-WarehouseCode ) ) ).
-    write_log( iv_text = |[Warehouse]: { lines( rt_codes ) } records created.| out = out ).
-  ENDMETHOD.
-
-  METHOD create_items.
-    TYPES tt_create TYPE TABLE FOR CREATE zmerp_r_item.
-
-    DATA(lv_grp1) = get_code( it_codes = is_codes-item_groups iv_no = 1 ).
-    DATA(lv_grp2) = get_code( it_codes = is_codes-item_groups iv_no = 2 ).
-    DATA(lv_grp3) = get_code( it_codes = is_codes-item_groups iv_no = 3 ).
-    DATA(lv_grp4) = get_code( it_codes = is_codes-item_groups iv_no = 4 ).
-    DATA(lv_grp5) = get_code( it_codes = is_codes-item_groups iv_no = 5 ).
-    DATA(lv_grp6) = get_code( it_codes = is_codes-item_groups iv_no = 6 ).
-
-    " Default VAT code = the default of the item group (setDefaultVatCode sets the same value)
-    DATA(lv_vat7)  = get_code( it_codes = is_codes-vat_rates iv_no = 2 ).
-    DATA(lv_vat19) = get_code( it_codes = is_codes-vat_rates iv_no = 3 ).
-
-    DATA(lv_product) = zif_merp_constants=>c_item_type-product.
-    DATA(lv_service) = zif_merp_constants=>c_item_type-service.
-
-    DATA(lt_create) = VALUE tt_create(
-      " Group 1: Major Home Appliances
-      ( Description       = 'Washing Machine Bosch Series 6'
-        Article           = 'BSH-WM-600'
-        ItemTypeCode      = lv_product
-        ItemGroupCode     = lv_grp1
-        DefaultVatCode    = lv_vat19
-        BaseUnitOfMeasure = 'EA' )
-      ( Description       = 'Refrigerator Siemens iQ500'
-        Article           = 'SIE-RF-500'
-        ItemTypeCode      = lv_product
-        ItemGroupCode     = lv_grp1
-        DefaultVatCode    = lv_vat19
-        BaseUnitOfMeasure = 'EA' )
-      ( Description       = 'Dishwasher Miele G7000'
-        Article           = 'MIE-DW-700'
-        ItemTypeCode      = lv_product
-        ItemGroupCode     = lv_grp1
-        DefaultVatCode    = lv_vat19
-        BaseUnitOfMeasure = 'EA' )
-
-      " Group 2: Small Kitchen Appliances
-      ( Description       = 'Espresso Machine DeLonghi Magnifica'
-        Article           = 'DLG-EM-100'
-        ItemTypeCode      = lv_product
-        ItemGroupCode     = lv_grp2
-        DefaultVatCode    = lv_vat19
-        BaseUnitOfMeasure = 'EA' )
-      ( Description       = 'Electric Kettle Philips Daily Collection'
-        Article           = 'PHL-EK-200'
-        ItemTypeCode      = lv_product
-        ItemGroupCode     = lv_grp2
-        DefaultVatCode    = lv_vat19
-        BaseUnitOfMeasure = 'EA' )
-      ( Description       = 'Toaster Tefal Express 2-Slot'
-        Article           = 'TEF-TS-300'
-        ItemTypeCode      = lv_product
-        ItemGroupCode     = lv_grp2
-        DefaultVatCode    = lv_vat19
-        BaseUnitOfMeasure = 'EA' )
-
-      " Group 3: Consumer Electronics
-      ( Description       = 'Smart TV Samsung 55 Inch OLED'
-        Article           = 'SAM-TV-55O'
-        ItemTypeCode      = lv_product
-        ItemGroupCode     = lv_grp3
-        DefaultVatCode    = lv_vat19
-        BaseUnitOfMeasure = 'EA' )
-      ( Description       = 'Soundbar Sony HT-S400 2.1ch'
-        Article           = 'SNE-SB-400'
-        ItemTypeCode      = lv_product
-        ItemGroupCode     = lv_grp3
-        DefaultVatCode    = lv_vat19
-        BaseUnitOfMeasure = 'EA' )
-      ( Description       = 'Wireless Headphones Bose QuietComfort 45'
-        Article           = 'BOS-HP-QC45'
-        ItemTypeCode      = lv_product
-        ItemGroupCode     = lv_grp3
-        DefaultVatCode    = lv_vat19
-        BaseUnitOfMeasure = 'EA' )
-
-      " Group 4: Accessories & Supplies
-      ( Description       = 'HDMI Cable 2.0 High Speed (2m)'
-        Article           = 'ACC-HDMI-02'
-        ItemTypeCode      = lv_product
-        ItemGroupCode     = lv_grp4
-        DefaultVatCode    = lv_vat19
-        BaseUnitOfMeasure = 'EA' )
-      ( Description       = 'Washing Machine Water Inlet Hose (1.5m)'
-        Article           = 'ACC-HOSE-15'
-        ItemTypeCode      = lv_product
-        ItemGroupCode     = lv_grp4
-        DefaultVatCode    = lv_vat19
-        BaseUnitOfMeasure = 'EA' )
-      ( Description       = 'Descaling Solution for Coffee Machines 500ml'
-        Article           = 'ACC-DESC-50'
-        ItemTypeCode      = lv_product
-        ItemGroupCode     = lv_grp4
-        DefaultVatCode    = lv_vat19
-        BaseUnitOfMeasure = 'EA' )
-
-      " Group 5: Installation & Support Services
-      ( Description       = 'Home Appliance Installation Service'
-        Article           = 'SRV-INST-01'
-        ItemTypeCode      = lv_service
-        ItemGroupCode     = lv_grp5
-        DefaultVatCode    = lv_vat7
-        BaseUnitOfMeasure = 'H' )
-      ( Description       = 'Extended Warranty & On-site Repair Service'
-        Article           = 'SRV-REPR-02'
-        ItemTypeCode      = lv_service
-        ItemGroupCode     = lv_grp5
-        DefaultVatCode    = lv_vat7
-        BaseUnitOfMeasure = 'H' )
-
-      " Group 6: Legacy Office Equipment (blocked)
-      ( Description       = 'Siemens Optipoint 500 Entry'
-        Article           = 'SIE-TEL-500'
-        ItemTypeCode      = lv_product
-        ItemGroupCode     = lv_grp6
-        DefaultVatCode    = lv_vat19
-        BaseUnitOfMeasure = 'EA'
-        IsBlocked         = abap_true )
-
-      ( Description       = 'Express Delivery and Connection Service'
-        Article           = 'SRV-DELIV-03'
-        ItemTypeCode      = lv_service
-        ItemGroupCode     = lv_grp5
-        DefaultVatCode    = lv_vat7
-        BaseUnitOfMeasure = 'EA' )
-    ).
-
-    LOOP AT lt_create ASSIGNING FIELD-SYMBOL(<ls_create>).
-      <ls_create>-%cid = |ITEM_{ sy-tabix }|.
-    ENDLOOP.
-
-    MODIFY ENTITIES OF zmerp_r_item
-      ENTITY Item
-      CREATE FIELDS ( Description Article ItemTypeCode ItemGroupCode DefaultVatCode BaseUnitOfMeasure IsBlocked )
-      WITH lt_create
-      MAPPED DATA(ls_mapped)
-      FAILED DATA(ls_failed)
-      REPORTED DATA(ls_reported).
-
-    IF ls_failed IS INITIAL.
-      COMMIT ENTITIES RESPONSE OF zmerp_r_item
-        FAILED DATA(ls_commit_failed)
-        REPORTED DATA(ls_commit_reported).
-    ENDIF.
-
-    IF ls_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
-      write_failure(
-        iv_text     = '[Item]: Creation failed:'
-        it_messages = VALUE #( BASE VALUE #( FOR rep IN ls_reported-item ( rep-%msg ) )
-                               FOR com IN ls_commit_reported-item ( com-%msg ) )
-        out         = out ).
-      ROLLBACK ENTITIES.
-      RETURN.
-    ENDIF.
-
-    rt_codes = VALUE #( FOR row IN lt_create ( CONV #( ls_mapped-item[ %cid = row-%cid ]-ItemCode ) ) ).
-    write_log( iv_text = |[Item]: { lines( rt_codes ) } records created.| out = out ).
   ENDMETHOD.
 
   METHOD create_business_partners.
@@ -846,6 +867,693 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
     write_log( iv_text = |[Business Partner]: { lines( rt_codes ) } records created.| out = out ).
   ENDMETHOD.
 
+
+  METHOD create_company_codes.
+    TYPES tt_create TYPE TABLE FOR CREATE zmerp_r_company_code.
+
+    " Company codes are entered manually (no number range)
+    DATA(lt_create) = VALUE tt_create(
+      ( CompanyCode   = '1000'
+        CompanyName   = 'MERP Deutschland GmbH'
+        CompanyPrefix = 'DE'
+        CurrencyCode  = 'EUR'
+        Country       = 'DE' )
+
+      ( CompanyCode   = '2000'
+        CompanyName   = 'MERP Trading GmbH'
+        CompanyPrefix = 'TR'
+        CurrencyCode  = 'EUR'
+        Country       = 'DE' )
+
+      ( CompanyCode   = '3000'
+        CompanyName   = 'Modevi GmbH'
+        CompanyPrefix = 'MD'
+        CurrencyCode  = 'EUR'
+        Country       = 'DE' )
+
+      ( CompanyCode   = '4000'
+        CompanyName   = 'MERP Inactive Services GmbH'
+        CompanyPrefix = 'IS'
+        CurrencyCode  = 'EUR'
+        Country       = 'DE'
+        IsBlocked     = abap_true )
+    ).
+
+    LOOP AT lt_create ASSIGNING FIELD-SYMBOL(<ls_create>).
+      <ls_create>-%cid = |COMPANY_{ sy-tabix }|.
+    ENDLOOP.
+
+    MODIFY ENTITIES OF zmerp_r_company_code
+      ENTITY CompanyCode
+      CREATE FIELDS ( CompanyCode CompanyName CompanyPrefix CurrencyCode Country IsBlocked )
+      WITH lt_create
+      MAPPED DATA(ls_mapped)
+      FAILED DATA(ls_failed)
+      REPORTED DATA(ls_reported).
+
+    IF ls_failed IS INITIAL.
+      COMMIT ENTITIES RESPONSE OF zmerp_r_company_code
+        FAILED DATA(ls_commit_failed)
+        REPORTED DATA(ls_commit_reported).
+    ENDIF.
+
+    IF ls_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
+      write_failure(
+        iv_text     = '[Company Code]: Creation failed:'
+        it_messages = VALUE #( BASE VALUE #( FOR rep IN ls_reported-companycode ( rep-%msg ) )
+                               FOR com IN ls_commit_reported-companycode ( com-%msg ) )
+        out         = out ).
+      ROLLBACK ENTITIES.
+      RETURN.
+    ENDIF.
+
+    rt_codes = VALUE #( FOR row IN lt_create ( CONV #( ls_mapped-companycode[ %cid = row-%cid ]-CompanyCode ) ) ).
+    write_log( iv_text = |[Company Code]: { lines( rt_codes ) } records created.| out = out ).
+  ENDMETHOD.
+
+
+  METHOD create_goods_receipt.
+    IF is_gr-po_uuid IS INITIAL.
+      write_log( iv_text = '[Goods Receipt]: Skipped, the purchase order was not created.' out = out ).
+      RETURN.
+    ENDIF.
+
+    DATA(lv_date) = CONV d( cl_abap_context_info=>get_system_date( ) - is_gr-days_ago ).
+
+    " 1. Header with the purchase order reference: header fields and items (open quantities)
+    "    are derived by the goods receipt logic (deriveDocFromPurchaseOrder)
+    MODIFY ENTITIES OF zmerp_r_goodsreceipt
+      ENTITY GoodsReceipt
+      CREATE FIELDS ( PoReferenceUUID DocumentDate PostingDate ResponsiblePerson Remarks )
+      WITH VALUE #( ( %cid              = 'GR'
+                      PoReferenceUUID   = is_gr-po_uuid
+                      DocumentDate      = lv_date
+                      PostingDate       = lv_date
+                      ResponsiblePerson = is_gr-responsible
+                      Remarks           = is_gr-remarks ) )
+      MAPPED DATA(ls_mapped).
+
+    DATA(lv_gr_uuid) = VALUE #( ls_mapped-goodsreceipt[ 1 ]-DocumentUUID OPTIONAL ).
+
+    " 2. Partial receipt: the listed items get the given quantity, all others keep the open quantity
+    IF is_gr-lines IS NOT INITIAL AND lv_gr_uuid IS NOT INITIAL.
+      DATA(lt_quantities) = VALUE tt_quantities(
+        FOR gr_line IN is_gr-lines ( item_code = get_code( it_codes = is_codes-items iv_no = gr_line-item_no )
+                                     quantity  = gr_line-quantity ) ).
+
+      READ ENTITIES OF zmerp_r_goodsreceipt
+        ENTITY GoodsReceipt BY \_Items
+        FIELDS ( ItemCode )
+        WITH VALUE #( ( DocumentUUID = lv_gr_uuid ) )
+        RESULT DATA(lt_items).
+
+      MODIFY ENTITIES OF zmerp_r_goodsreceipt
+        ENTITY GoodsReceiptItem
+        UPDATE FIELDS ( Quantity )
+        WITH VALUE #( FOR gr_item IN lt_items
+                      FOR qty IN lt_quantities WHERE ( item_code = gr_item-ItemCode )
+                      ( %tky     = gr_item-%tky
+                        Quantity = qty-quantity ) ).
+    ENDIF.
+
+    COMMIT ENTITIES RESPONSE OF zmerp_r_goodsreceipt
+      FAILED DATA(ls_save_failed)
+      REPORTED DATA(ls_save_reported).
+
+    IF ls_save_failed IS NOT INITIAL OR lv_gr_uuid IS INITIAL.
+      write_failure(
+        iv_text     = '[Goods Receipt]: Saving failed:'
+        it_messages = VALUE #( BASE VALUE #( FOR save_hdr IN ls_save_reported-goodsreceipt ( save_hdr-%msg ) )
+                               FOR save_itm IN ls_save_reported-goodsreceiptitem ( save_itm-%msg ) )
+        out         = out ).
+      ROLLBACK ENTITIES.
+      RETURN.
+    ENDIF.
+
+    " 3. Posting: stock movements and the purchase order status follow the goods receipt logic
+    IF is_gr-post = abap_true.
+      MODIFY ENTITIES OF zmerp_r_goodsreceipt
+        ENTITY GoodsReceipt
+        EXECUTE postDocument
+        FROM VALUE #( ( DocumentUUID = lv_gr_uuid ) )
+        FAILED DATA(ls_post_failed)
+        REPORTED DATA(ls_post_reported).
+
+      IF ls_post_failed IS INITIAL.
+        COMMIT ENTITIES RESPONSE OF zmerp_r_goodsreceipt
+          FAILED DATA(ls_commit_failed)
+          REPORTED DATA(ls_commit_reported).
+      ENDIF.
+
+      IF ls_post_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
+        write_failure(
+          iv_text     = '[Goods Receipt]: Posting failed:'
+          it_messages = VALUE #( BASE VALUE #( BASE VALUE #( FOR post_hdr IN ls_post_reported-goodsreceipt ( post_hdr-%msg ) )
+                                               FOR post_itm IN ls_post_reported-goodsreceiptitem ( post_itm-%msg ) )
+                                 FOR com_hdr IN ls_commit_reported-goodsreceipt ( com_hdr-%msg ) )
+          out         = out ).
+        ROLLBACK ENTITIES.
+      ENDIF.
+    ENDIF.
+
+    SELECT SINGLE gr~document_number, gr~status, po~document_number AS po_number, po~status AS po_status
+      FROM zmerp_gr_hdr AS gr
+      INNER JOIN zmerp_po_hdr AS po ON po~document_uuid = gr~po_reference_uuid
+      WHERE gr~document_uuid = @lv_gr_uuid
+      INTO @DATA(ls_gr).
+
+    write_log( iv_text = |[Goods Receipt]: { ls_gr-document_number } for PO { ls_gr-po_number } created, | &&
+                         |status { ls_gr-status }; PO status { ls_gr-po_status }.|
+               out     = out ).
+  ENDMETHOD.
+
+
+  METHOD create_items.
+    TYPES tt_create TYPE TABLE FOR CREATE zmerp_r_item.
+
+    DATA(lv_grp1) = get_code( it_codes = is_codes-item_groups iv_no = 1 ).
+    DATA(lv_grp2) = get_code( it_codes = is_codes-item_groups iv_no = 2 ).
+    DATA(lv_grp3) = get_code( it_codes = is_codes-item_groups iv_no = 3 ).
+    DATA(lv_grp4) = get_code( it_codes = is_codes-item_groups iv_no = 4 ).
+    DATA(lv_grp5) = get_code( it_codes = is_codes-item_groups iv_no = 5 ).
+    DATA(lv_grp6) = get_code( it_codes = is_codes-item_groups iv_no = 6 ).
+
+    " Default VAT code = the default of the item group (setDefaultVatCode sets the same value)
+    DATA(lv_vat7)  = get_code( it_codes = is_codes-vat_rates iv_no = 2 ).
+    DATA(lv_vat19) = get_code( it_codes = is_codes-vat_rates iv_no = 3 ).
+
+    DATA(lv_product) = zif_merp_constants=>c_item_type-product.
+    DATA(lv_service) = zif_merp_constants=>c_item_type-service.
+
+    DATA(lt_create) = VALUE tt_create(
+      " Group 1: Major Home Appliances
+      ( Description       = 'Washing Machine Bosch Series 6'
+        Article           = 'BSH-WM-600'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp1
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+      ( Description       = 'Refrigerator Siemens iQ500'
+        Article           = 'SIE-RF-500'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp1
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+      ( Description       = 'Dishwasher Miele G7000'
+        Article           = 'MIE-DW-700'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp1
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+
+      " Group 2: Small Kitchen Appliances
+      ( Description       = 'Espresso Machine DeLonghi Magnifica'
+        Article           = 'DLG-EM-100'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp2
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+      ( Description       = 'Electric Kettle Philips Daily Collection'
+        Article           = 'PHL-EK-200'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp2
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+      ( Description       = 'Toaster Tefal Express 2-Slot'
+        Article           = 'TEF-TS-300'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp2
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+
+      " Group 3: Consumer Electronics
+      ( Description       = 'Smart TV Samsung 55 Inch OLED'
+        Article           = 'SAM-TV-55O'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp3
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+      ( Description       = 'Soundbar Sony HT-S400 2.1ch'
+        Article           = 'SNE-SB-400'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp3
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+      ( Description       = 'Wireless Headphones Bose QuietComfort 45'
+        Article           = 'BOS-HP-QC45'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp3
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+
+      " Group 4: Accessories & Supplies
+      ( Description       = 'HDMI Cable 2.0 High Speed (2m)'
+        Article           = 'ACC-HDMI-02'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp4
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+      ( Description       = 'Washing Machine Water Inlet Hose (1.5m)'
+        Article           = 'ACC-HOSE-15'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp4
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+      ( Description       = 'Descaling Solution for Coffee Machines 500ml'
+        Article           = 'ACC-DESC-50'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp4
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA' )
+
+      " Group 5: Installation & Support Services
+      ( Description       = 'Home Appliance Installation Service'
+        Article           = 'SRV-INST-01'
+        ItemTypeCode      = lv_service
+        ItemGroupCode     = lv_grp5
+        DefaultVatCode    = lv_vat7
+        BaseUnitOfMeasure = 'H' )
+      ( Description       = 'Extended Warranty & On-site Repair Service'
+        Article           = 'SRV-REPR-02'
+        ItemTypeCode      = lv_service
+        ItemGroupCode     = lv_grp5
+        DefaultVatCode    = lv_vat7
+        BaseUnitOfMeasure = 'H' )
+
+      " Group 6: Legacy Office Equipment (blocked)
+      ( Description       = 'Siemens Optipoint 500 Entry'
+        Article           = 'SIE-TEL-500'
+        ItemTypeCode      = lv_product
+        ItemGroupCode     = lv_grp6
+        DefaultVatCode    = lv_vat19
+        BaseUnitOfMeasure = 'EA'
+        IsBlocked         = abap_true )
+
+      ( Description       = 'Express Delivery and Connection Service'
+        Article           = 'SRV-DELIV-03'
+        ItemTypeCode      = lv_service
+        ItemGroupCode     = lv_grp5
+        DefaultVatCode    = lv_vat7
+        BaseUnitOfMeasure = 'EA' )
+    ).
+
+    LOOP AT lt_create ASSIGNING FIELD-SYMBOL(<ls_create>).
+      <ls_create>-%cid = |ITEM_{ sy-tabix }|.
+    ENDLOOP.
+
+    MODIFY ENTITIES OF zmerp_r_item
+      ENTITY Item
+      CREATE FIELDS ( Description Article ItemTypeCode ItemGroupCode DefaultVatCode BaseUnitOfMeasure IsBlocked )
+      WITH lt_create
+      MAPPED DATA(ls_mapped)
+      FAILED DATA(ls_failed)
+      REPORTED DATA(ls_reported).
+
+    IF ls_failed IS INITIAL.
+      COMMIT ENTITIES RESPONSE OF zmerp_r_item
+        FAILED DATA(ls_commit_failed)
+        REPORTED DATA(ls_commit_reported).
+    ENDIF.
+
+    IF ls_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
+      write_failure(
+        iv_text     = '[Item]: Creation failed:'
+        it_messages = VALUE #( BASE VALUE #( FOR rep IN ls_reported-item ( rep-%msg ) )
+                               FOR com IN ls_commit_reported-item ( com-%msg ) )
+        out         = out ).
+      ROLLBACK ENTITIES.
+      RETURN.
+    ENDIF.
+
+    rt_codes = VALUE #( FOR row IN lt_create ( CONV #( ls_mapped-item[ %cid = row-%cid ]-ItemCode ) ) ).
+    write_log( iv_text = |[Item]: { lines( rt_codes ) } records created.| out = out ).
+  ENDMETHOD.
+
+
+  METHOD create_item_groups.
+    TYPES tt_create TYPE TABLE FOR CREATE zmerp_r_item_group.
+
+    DATA(lv_vat7)  = get_code( it_codes = is_codes-vat_rates iv_no = 2 ).
+    DATA(lv_vat19) = get_code( it_codes = is_codes-vat_rates iv_no = 3 ).
+
+    DATA(lt_create) = VALUE tt_create(
+      ( Description    = 'Major Home Appliances'
+        DefaultVatCode = lv_vat19 )
+
+      ( Description    = 'Small Kitchen Appliances'
+        DefaultVatCode = lv_vat19 )
+
+      ( Description    = 'Consumer Electronics'
+        DefaultVatCode = lv_vat19 )
+
+      ( Description    = 'Accessories & Supplies'
+        DefaultVatCode = lv_vat19 )
+
+      ( Description    = 'Installation & Support Services'
+        DefaultVatCode = lv_vat7 )
+
+      ( Description    = 'Legacy Office Equipment'
+        DefaultVatCode = lv_vat19
+        IsBlocked      = abap_true )
+    ).
+
+    LOOP AT lt_create ASSIGNING FIELD-SYMBOL(<ls_create>).
+      <ls_create>-%cid = |ITEM_GROUP_{ sy-tabix }|.
+    ENDLOOP.
+
+    MODIFY ENTITIES OF zmerp_r_item_group
+      ENTITY ItemGroup
+      CREATE FIELDS ( Description DefaultVatCode IsBlocked )
+      WITH lt_create
+      MAPPED DATA(ls_mapped)
+      FAILED DATA(ls_failed)
+      REPORTED DATA(ls_reported).
+
+    IF ls_failed IS INITIAL.
+      COMMIT ENTITIES RESPONSE OF zmerp_r_item_group
+        FAILED DATA(ls_commit_failed)
+        REPORTED DATA(ls_commit_reported).
+    ENDIF.
+
+    IF ls_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
+      write_failure(
+        iv_text     = '[Item Group]: Creation failed:'
+        it_messages = VALUE #( BASE VALUE #( FOR rep IN ls_reported-itemgroup ( rep-%msg ) )
+                               FOR com IN ls_commit_reported-itemgroup ( com-%msg ) )
+        out         = out ).
+      ROLLBACK ENTITIES.
+      RETURN.
+    ENDIF.
+
+    rt_codes = VALUE #( FOR row IN lt_create ( CONV #( ls_mapped-itemgroup[ %cid = row-%cid ]-ItemGroupCode ) ) ).
+    write_log( iv_text = |[Item Group]: { lines( rt_codes ) } records created.| out = out ).
+  ENDMETHOD.
+
+
+  METHOD create_purchase_order.
+    DATA(lv_today)        = cl_abap_context_info=>get_system_date( ).
+    DATA(lv_company_code) = get_code( it_codes = is_codes-companies iv_no = is_po-company_no ).
+
+    " 1. Header and items: currency, item defaults and amounts are derived by the purchase order logic
+    MODIFY ENTITIES OF zmerp_r_purchaseorder
+      ENTITY PurchaseOrder
+        CREATE FIELDS ( CompanyCode WarehouseCode BusinessPartnerCode DocumentDate DeliveryDate
+                        ResponsiblePerson Remarks )
+        WITH VALUE #( ( %cid                = 'PO'
+                        CompanyCode         = lv_company_code
+                        WarehouseCode       = get_code( it_codes = is_codes-warehouses iv_no = is_po-warehouse_no )
+                        BusinessPartnerCode = get_code( it_codes = is_codes-partners iv_no = is_po-partner_no )
+                        DocumentDate        = CONV d( lv_today - is_po-days_ago )
+                        DeliveryDate        = CONV d( lv_today + is_po-delivery_in )
+                        ResponsiblePerson   = is_po-responsible
+                        Remarks             = is_po-remarks ) )
+        CREATE BY \_Items
+        FIELDS ( ItemCode Quantity Price )
+        WITH VALUE #( ( %cid_ref = 'PO'
+                        %target  = VALUE #( FOR po_line IN is_po-lines INDEX INTO lv_index
+                                            ( %cid     = |PO_ITEM_{ lv_index }|
+                                              ItemCode = get_code( it_codes = is_codes-items iv_no = po_line-item_no )
+                                              Quantity = po_line-quantity
+                                              Price    = po_line-price ) ) ) )
+      MAPPED DATA(ls_mapped).
+
+    rv_po_uuid = VALUE #( ls_mapped-purchaseorder[ 1 ]-DocumentUUID OPTIONAL ).
+
+    COMMIT ENTITIES RESPONSE OF zmerp_r_purchaseorder
+      FAILED DATA(ls_save_failed)
+      REPORTED DATA(ls_save_reported).
+
+    IF ls_save_failed IS NOT INITIAL OR rv_po_uuid IS INITIAL.
+      write_failure(
+        iv_text     = |[Purchase Order]: Creation for company { lv_company_code } failed:|
+        it_messages = VALUE #( BASE VALUE #( FOR save_hdr IN ls_save_reported-purchaseorder ( save_hdr-%msg ) )
+                               FOR save_itm IN ls_save_reported-purchaseorderitem ( save_itm-%msg ) )
+        out         = out ).
+      ROLLBACK ENTITIES.
+      CLEAR rv_po_uuid.
+      RETURN.
+    ENDIF.
+
+    " 2. Release ('New' -> 'Approved')
+    IF is_po-release = abap_true.
+      MODIFY ENTITIES OF zmerp_r_purchaseorder
+        ENTITY PurchaseOrder
+        EXECUTE releaseDocument
+        FROM VALUE #( ( DocumentUUID = rv_po_uuid ) )
+        FAILED DATA(ls_release_failed)
+        REPORTED DATA(ls_release_reported).
+
+      IF ls_release_failed IS INITIAL.
+        COMMIT ENTITIES RESPONSE OF zmerp_r_purchaseorder
+          FAILED DATA(ls_commit_failed)
+          REPORTED DATA(ls_commit_reported).
+      ENDIF.
+
+      IF ls_release_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
+        write_failure(
+          iv_text     = |[Purchase Order]: Release for company { lv_company_code } failed:|
+          it_messages = VALUE #( BASE VALUE #( FOR rel_hdr IN ls_release_reported-purchaseorder ( rel_hdr-%msg ) )
+                                 FOR com_hdr IN ls_commit_reported-purchaseorder ( com_hdr-%msg ) )
+          out         = out ).
+        ROLLBACK ENTITIES.
+      ENDIF.
+    ENDIF.
+
+    SELECT SINGLE document_number, status
+      FROM zmerp_po_hdr
+      WHERE document_uuid = @rv_po_uuid
+      INTO @DATA(ls_po).
+
+    write_log( iv_text = |[Purchase Order]: { ls_po-document_number } created, status { ls_po-status }.| out = out ).
+  ENDMETHOD.
+
+
+  METHOD create_sales_order.
+    DATA(lv_today)        = cl_abap_context_info=>get_system_date( ).
+    DATA(lv_company_code) = get_code( it_codes = is_codes-companies iv_no = is_so-company_no ).
+
+    " 1. Header and items: currency, item defaults and amounts are derived by the sales order logic
+    MODIFY ENTITIES OF zmerp_r_salesorder
+      ENTITY SalesOrder
+        CREATE FIELDS ( CompanyCode WarehouseCode BusinessPartnerCode DocumentDate CustomerReference
+                        ResponsiblePerson Remarks )
+        WITH VALUE #( ( %cid                = 'SO'
+                        CompanyCode         = lv_company_code
+                        WarehouseCode       = get_code( it_codes = is_codes-warehouses iv_no = is_so-warehouse_no )
+                        BusinessPartnerCode = get_code( it_codes = is_codes-partners iv_no = is_so-partner_no )
+                        DocumentDate        = CONV d( lv_today - is_so-days_ago )
+                        CustomerReference   = is_so-customer_ref
+                        ResponsiblePerson   = is_so-responsible
+                        Remarks             = is_so-remarks ) )
+        CREATE BY \_Items
+        FIELDS ( ItemCode Quantity Price )
+        WITH VALUE #( ( %cid_ref = 'SO'
+                        %target  = VALUE #( FOR so_line IN is_so-lines INDEX INTO lv_index
+                                            ( %cid     = |SO_ITEM_{ lv_index }|
+                                              ItemCode = get_code( it_codes = is_codes-items iv_no = so_line-item_no )
+                                              Quantity = so_line-quantity
+                                              Price    = so_line-price ) ) ) )
+      MAPPED DATA(ls_mapped).
+
+    rv_so_uuid = VALUE #( ls_mapped-salesorder[ 1 ]-DocumentUUID OPTIONAL ).
+
+    COMMIT ENTITIES RESPONSE OF zmerp_r_salesorder
+      FAILED DATA(ls_save_failed)
+      REPORTED DATA(ls_save_reported).
+
+    IF ls_save_failed IS NOT INITIAL OR rv_so_uuid IS INITIAL.
+      write_failure(
+        iv_text     = |[Sales Order]: Creation for company { lv_company_code } failed:|
+        it_messages = VALUE #( BASE VALUE #( FOR save_hdr IN ls_save_reported-salesorder ( save_hdr-%msg ) )
+                               FOR save_itm IN ls_save_reported-salesorderitem ( save_itm-%msg ) )
+        out         = out ).
+      ROLLBACK ENTITIES.
+      CLEAR rv_so_uuid.
+      RETURN.
+    ENDIF.
+
+    " 2. Rejection ('Open' -> 'Rejected')
+    IF is_so-reject = abap_true.
+      MODIFY ENTITIES OF zmerp_r_salesorder
+        ENTITY SalesOrder
+        EXECUTE rejectDocument
+        FROM VALUE #( ( DocumentUUID = rv_so_uuid ) )
+        FAILED DATA(ls_reject_failed)
+        REPORTED DATA(ls_reject_reported).
+
+      IF ls_reject_failed IS INITIAL.
+        COMMIT ENTITIES RESPONSE OF zmerp_r_salesorder
+          FAILED DATA(ls_commit_failed)
+          REPORTED DATA(ls_commit_reported).
+      ENDIF.
+
+      IF ls_reject_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
+        write_failure(
+          iv_text     = |[Sales Order]: Rejection for company { lv_company_code } failed:|
+          it_messages = VALUE #( BASE VALUE #( FOR rej_hdr IN ls_reject_reported-salesorder ( rej_hdr-%msg ) )
+                                 FOR com_hdr IN ls_commit_reported-salesorder ( com_hdr-%msg ) )
+          out         = out ).
+        ROLLBACK ENTITIES.
+      ENDIF.
+    ENDIF.
+
+    SELECT SINGLE document_number, status
+      FROM zmerp_so_hdr
+      WHERE document_uuid = @rv_so_uuid
+      INTO @DATA(ls_so).
+
+    write_log( iv_text = |[Sales Order]: { ls_so-document_number } created, status { ls_so-status }.| out = out ).
+  ENDMETHOD.
+
+
+  METHOD create_vat_rates.
+    TYPES tt_create TYPE TABLE FOR CREATE zmerp_r_vat_rate.
+
+    " VAT codes come from the number range (early numbering)
+    DATA(lt_create) = VALUE tt_create(
+      ( Description = 'VAT 0%'
+        Percentage  = '0.00' )
+
+      ( Description = 'VAT 7%'
+        Percentage  = '7.00' )
+
+      ( Description = 'VAT 19%'
+        Percentage  = '19.00' )
+
+      ( Description = 'VAT 16% (Historical)'
+        Percentage  = '16.00'
+        IsBlocked   = abap_true )
+    ).
+
+    LOOP AT lt_create ASSIGNING FIELD-SYMBOL(<ls_create>).
+      <ls_create>-%cid = |VAT_{ sy-tabix }|.
+    ENDLOOP.
+
+    MODIFY ENTITIES OF zmerp_r_vat_rate
+      ENTITY VatRate
+      CREATE FIELDS ( Description Percentage IsBlocked )
+      WITH lt_create
+      MAPPED DATA(ls_mapped)
+      FAILED DATA(ls_failed)
+      REPORTED DATA(ls_reported).
+
+    IF ls_failed IS INITIAL.
+      COMMIT ENTITIES RESPONSE OF zmerp_r_vat_rate
+        FAILED DATA(ls_commit_failed)
+        REPORTED DATA(ls_commit_reported).
+    ENDIF.
+
+    IF ls_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
+      write_failure(
+        iv_text     = '[VAT Rate]: Creation failed:'
+        it_messages = VALUE #( BASE VALUE #( FOR rep IN ls_reported-vatrate ( rep-%msg ) )
+                               FOR com IN ls_commit_reported-vatrate ( com-%msg ) )
+        out         = out ).
+      ROLLBACK ENTITIES.
+      RETURN.
+    ENDIF.
+
+    rt_codes = VALUE #( FOR row IN lt_create ( CONV #( ls_mapped-vatrate[ %cid = row-%cid ]-VatCode ) ) ).
+    write_log( iv_text = |[VAT Rate]: { lines( rt_codes ) } records created.| out = out ).
+  ENDMETHOD.
+
+
+  METHOD create_warehouses.
+    TYPES tt_create TYPE TABLE FOR CREATE zmerp_r_warehouse.
+
+    DATA(lv_company1) = get_code( it_codes = is_codes-companies iv_no = 1 ).
+    DATA(lv_company2) = get_code( it_codes = is_codes-companies iv_no = 2 ).
+    DATA(lv_company3) = get_code( it_codes = is_codes-companies iv_no = 3 ).
+
+    DATA(lt_create) = VALUE tt_create(
+      ( WarehouseName = 'Hauptlager Kusel'
+        CompanyCode   = lv_company1 )
+
+      ( WarehouseName = 'Hauptlager Frankfurt'
+        CompanyCode   = lv_company1 )
+
+      ( WarehouseName = 'Lager Berlin'
+        CompanyCode   = lv_company1 )
+
+      ( WarehouseName = 'Retourlager Frankfurt'
+        CompanyCode   = lv_company1 )
+
+      ( WarehouseName = 'Altlager Frankfurt'
+        CompanyCode   = lv_company1
+        IsBlocked     = abap_true )
+
+      ( WarehouseName = 'Hauptlager Hamburg'
+        CompanyCode   = lv_company2 )
+
+      ( WarehouseName = 'Lager München'
+        CompanyCode   = lv_company2 )
+
+      ( WarehouseName = 'Transitlager Hamburg'
+        CompanyCode   = lv_company2 )
+
+      ( WarehouseName = 'Hauptlager Kusel'
+        CompanyCode   = lv_company3 )
+
+      ( WarehouseName = 'Lager Kaiserslautern'
+        CompanyCode   = lv_company3 )
+    ).
+
+    LOOP AT lt_create ASSIGNING FIELD-SYMBOL(<ls_create>).
+      <ls_create>-%cid = |WAREHOUSE_{ sy-tabix }|.
+    ENDLOOP.
+
+    MODIFY ENTITIES OF zmerp_r_warehouse
+      ENTITY Warehouse
+      CREATE FIELDS ( WarehouseName CompanyCode IsBlocked )
+      WITH lt_create
+      MAPPED DATA(ls_mapped)
+      FAILED DATA(ls_failed)
+      REPORTED DATA(ls_reported).
+
+    IF ls_failed IS INITIAL.
+      COMMIT ENTITIES RESPONSE OF zmerp_r_warehouse
+        FAILED DATA(ls_commit_failed)
+        REPORTED DATA(ls_commit_reported).
+    ENDIF.
+
+    IF ls_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
+      write_failure(
+        iv_text     = '[Warehouse]: Creation failed:'
+        it_messages = VALUE #( BASE VALUE #( FOR rep IN ls_reported-warehouse ( rep-%msg ) )
+                               FOR com IN ls_commit_reported-warehouse ( com-%msg ) )
+        out         = out ).
+      ROLLBACK ENTITIES.
+      RETURN.
+    ENDIF.
+
+    rt_codes = VALUE #( FOR row IN lt_create ( CONV #( ls_mapped-warehouse[ %cid = row-%cid ]-WarehouseCode ) ) ).
+    write_log( iv_text = |[Warehouse]: { lines( rt_codes ) } records created.| out = out ).
+  ENDMETHOD.
+
+
+  METHOD execute.
+    write_log( iv_text = '=== Starting Initial Data Setup for Mini ERP ===' out = out ).
+
+    " 1. Reset: all tables (master data, documents, stock movements) and number range levels.
+    "    Committed before EML: number assignment (number_get) must not wait for our own
+    "    uncommitted interval changes
+    zcl_merp_clear_all_data=>execute( out ).
+    COMMIT WORK.
+
+    " 2. Master data via EML
+    DATA(ls_codes) = setup_master_data( out ).
+    IF ls_codes IS INITIAL.
+      write_log( iv_text = '=== Initial Data Setup stopped ===' out = out ).
+      RETURN.
+    ENDIF.
+
+    " 3. Documents via EML (the business logic assigns numbers, amounts, stock and statuses)
+    setup_documents( is_codes = ls_codes out = out ).
+
+    write_log( iv_text = '==== Initial Data Setup Completed ====' out = out ).
+  ENDMETHOD.
+
+
   METHOD setup_master_data.
     " One commit per level: the validations of a level read the master data
     " of the previous levels from the database. A failed level stops the setup.
@@ -891,11 +1599,6 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
     COMMIT WORK.
   ENDMETHOD.
 
-  METHOD setup_documents.
-    " Purchasing first: the sales documents are issued from the stock of the goods receipts
-    setup_purchase_documents( is_codes = is_codes out = out ).
-    setup_sales_documents( is_codes = is_codes out = out ).
-  ENDMETHOD.
 
   METHOD setup_purchase_documents.
     " Readable amounts: every line (also of a partial receipt) has a net amount that is a multiple of 100,
@@ -1133,515 +1836,18 @@ CLASS zcl_merp_initial_setup IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
-  METHOD setup_sales_documents.
-    " Readable amounts as in purchasing: every line net amount is a multiple of 100, so VAT and gross
-    " have no cents. Selling prices are above the purchase prices (margin against the moving average cost).
-    " The orders are placed in warehouses with stock from the purchasing documents, except SO 5.
-    " Issue values follow the moving average cost; SO 6 shows a value with cents (stock bought at two prices).
 
-    " SO 1 (1000, Media-Saturn, Hauptlager Kusel): TVs, cables and warranty, stock of PO 1
-    DATA(lv_so1) = create_sales_order(
-      is_so = VALUE #( company_no   = 1      warehouse_no = 1 partner_no = 6
-                       days_ago     = 1
-                       customer_ref = 'MS-2026-0815'
-                       responsible  = 'BRAUN_L'
-                       remarks      = 'TV promotion'
-                       lines        = VALUE #( ( item_no = 7  quantity = 2 price = '1500.00' )
-                                               ( item_no = 10 quantity = 4 price = '25.00' )
-                                               ( item_no = 14 quantity = 2 price = '150.00' ) ) )
-      is_codes = is_codes
-      out      = out ).
-
-    " SO 2 (1000, Expert, Hauptlager Frankfurt): washing machines with installation, stock of PO 2;
-    "   the dishwasher has no stock yet (it stays open after the goods issue)
-    DATA(lv_so2) = create_sales_order(
-      is_so = VALUE #( company_no   = 1      warehouse_no = 2 partner_no = 7
-                       days_ago     = 1
-                       customer_ref = 'EXP-55102'
-                       responsible  = 'BRAUN_L'
-                       remarks      = 'Washing machines with installation'
-                       lines        = VALUE #( ( item_no = 1  quantity = 2 price = '750.00' )
-                                               ( item_no = 11 quantity = 5 price = '20.00' )
-                                               ( item_no = 13 quantity = 2 price = '50.00' )
-                                               ( item_no = 3  quantity = 1 price = '900.00' ) ) )
-      is_codes = is_codes
-      out      = out ).
-
-    " SO 3 (2000, Conrad as customer, Lager München): audio, stock of PO 5
-    DATA(lv_so3) = create_sales_order(
-      is_so = VALUE #( company_no   = 2      warehouse_no = 7 partner_no = 12
-                       days_ago     = 0
-                       customer_ref = 'CON-7781'
-                       responsible  = 'FISCHER_K'
-                       remarks      = 'Audio for the Munich store'
-                       lines        = VALUE #( ( item_no = 8 quantity = 4 price = '350.00' )
-                                               ( item_no = 9 quantity = 2 price = '450.00' ) ) )
-      is_codes = is_codes
-      out      = out ).
-
-    " SO 4 (3000, Euronics): the customer withdrew the order -> 'Rejected'
-    create_sales_order(
-      is_so = VALUE #( company_no   = 3      warehouse_no = 9 partner_no = 8
-                       days_ago     = 1
-                       customer_ref = 'EU-3301'
-                       responsible  = 'WEBER_J'
-                       remarks      = 'Customer withdrew the order'
-                       reject       = abap_true
-                       lines        = VALUE #( ( item_no = 7 quantity = 1 price = '900.00' ) ) )
-      is_codes = is_codes
-      out      = out ).
-
-    " SO 5 (1000, Küchenstudio Schmidt, Lager Berlin): no stock in Berlin
-    DATA(lv_so5) = create_sales_order(
-      is_so = VALUE #( company_no   = 1      warehouse_no = 3 partner_no = 10
-                       days_ago     = 0
-                       customer_ref = 'KS-118'
-                       responsible  = 'SCHMIDT_A'
-                       remarks      = 'Espresso machines, waiting for stock'
-                       lines        = VALUE #( ( item_no = 4  quantity = 2 price = '600.00' )
-                                               ( item_no = 12 quantity = 4 price = '25.00' ) ) )
-      is_codes = is_codes
-      out      = out ).
-
-    " Goods issues: stock is issued at moving average cost (3 TVs of PO 1 = 3599.97 -> 1199.99 each)
-
-    " SO 1: two goods issues -> 'In Process' after the first, 'Completed' after the second
-    create_goods_issue(
-      is_gi = VALUE #( so_uuid     = lv_so1
-                       days_ago    = 0
-                       responsible = 'BRAUN_L'
-                       remarks     = 'Issue 1 of 2: 1 TV, 2 cables, 1 h warranty'
-                       post        = abap_true
-                       lines       = VALUE #( ( item_no = 7  quantity = 1 )
-                                              ( item_no = 10 quantity = 2 )
-                                              ( item_no = 14 quantity = 1 ) ) )
-      is_codes = is_codes
-      out      = out ).
-
-    create_goods_issue(
-      is_gi = VALUE #( so_uuid     = lv_so1
-                       days_ago    = 0
-                       responsible = 'BRAUN_L'
-                       remarks     = 'Issue 2 of 2: the rest of the order'
-                       post        = abap_true )
-      is_codes = is_codes
-      out      = out ).
-
-    " SO 2: everything with stock is issued, the dishwasher line is removed -> 'In Process'
-    create_goods_issue(
-      is_gi = VALUE #( so_uuid     = lv_so2
-                       days_ago    = 0
-                       responsible = 'BRAUN_L'
-                       remarks     = 'Dishwasher follows when it is in stock'
-                       post        = abap_true
-                       lines       = VALUE #( ( item_no = 3 quantity = 0 ) ) )
-      is_codes = is_codes
-      out      = out ).
-
-    " SO 3: complete goods issue -> 'Completed'
-    create_goods_issue(
-      is_gi = VALUE #( so_uuid     = lv_so3
-                       days_ago    = 0
-                       responsible = 'FISCHER_K'
-                       remarks     = 'Complete delivery'
-                       post        = abap_true )
-      is_codes = is_codes
-      out      = out ).
-
-    " SO 5: the goods issue is prepared, posting fails on the stock check (expected) -> goods issue 'New'
-    create_goods_issue(
-      is_gi = VALUE #( so_uuid     = lv_so5
-                       days_ago    = 0
-                       responsible = 'SCHMIDT_A'
-                       remarks     = 'Waiting for stock in Berlin (posting fails as expected)'
-                       post        = abap_true )
-      is_codes = is_codes
-      out      = out ).
-
-    " SO 6 (3000, Elektro-Service Müller, Hauptlager Kusel): soundbars of PO 8 and PO 9,
-    "   stock 3 pieces for 1000.00. The goods issue of 1 piece is valued at 1000.00 / 3 = 333.33
-    "   (stock 2 pieces for 666.67) -> 'In Process'. The rest stays open for a live demo:
-    "   issuing the last 2 pieces takes the whole remaining value 666.67, the stock closes at 0.00
-    DATA(lv_so6) = create_sales_order(
-      is_so = VALUE #( company_no   = 3      warehouse_no = 9 partner_no = 9
-                       days_ago     = 0
-                       customer_ref = 'ESM-2026-31'
-                       responsible  = 'WEBER_J'
-                       remarks      = 'Soundbars for a hotel project'
-                       lines        = VALUE #( ( item_no = 8 quantity = 3 price = '500.00' ) ) )
-      is_codes = is_codes
-      out      = out ).
-
-    create_goods_issue(
-      is_gi = VALUE #( so_uuid     = lv_so6
-                       days_ago    = 0
-                       responsible = 'WEBER_J'
-                       remarks     = 'Issue 1 of 2: moving average cost with cents'
-                       post        = abap_true
-                       lines       = VALUE #( ( item_no = 8 quantity = 1 ) ) )
-      is_codes = is_codes
-      out      = out ).
-
-    " Summary: resulting sales order statuses
-    SELECT document_number, status
-      FROM zmerp_so_hdr
-      ORDER BY document_number
-      INTO TABLE @DATA(lt_so_status).
-
-    write_log( iv_text = '[Summary] Sales order statuses:' out = out ).
-    LOOP AT lt_so_status REFERENCE INTO DATA(lr_so_status).
-      write_log( iv_text = |    { lr_so_status->document_number }: { lr_so_status->status }| out = out ).
+  METHOD write_failure.
+    write_log( iv_text = iv_text out = out ).
+    LOOP AT it_messages INTO DATA(lo_message) WHERE table_line IS BOUND.
+      write_log( iv_text = |    - { lo_message->if_message~get_text( ) }| out = out ).
     ENDLOOP.
   ENDMETHOD.
 
-  METHOD create_purchase_order.
-    DATA(lv_today)        = cl_abap_context_info=>get_system_date( ).
-    DATA(lv_company_code) = get_code( it_codes = is_codes-companies iv_no = is_po-company_no ).
 
-    " 1. Header and items: currency, item defaults and amounts are derived by the purchase order logic
-    MODIFY ENTITIES OF zmerp_r_purchaseorder
-      ENTITY PurchaseOrder
-        CREATE FIELDS ( CompanyCode WarehouseCode BusinessPartnerCode DocumentDate DeliveryDate
-                        ResponsiblePerson Remarks )
-        WITH VALUE #( ( %cid                = 'PO'
-                        CompanyCode         = lv_company_code
-                        WarehouseCode       = get_code( it_codes = is_codes-warehouses iv_no = is_po-warehouse_no )
-                        BusinessPartnerCode = get_code( it_codes = is_codes-partners iv_no = is_po-partner_no )
-                        DocumentDate        = CONV d( lv_today - is_po-days_ago )
-                        DeliveryDate        = CONV d( lv_today + is_po-delivery_in )
-                        ResponsiblePerson   = is_po-responsible
-                        Remarks             = is_po-remarks ) )
-        CREATE BY \_Items
-        FIELDS ( ItemCode Quantity Price )
-        WITH VALUE #( ( %cid_ref = 'PO'
-                        %target  = VALUE #( FOR po_line IN is_po-lines INDEX INTO lv_index
-                                            ( %cid     = |PO_ITEM_{ lv_index }|
-                                              ItemCode = get_code( it_codes = is_codes-items iv_no = po_line-item_no )
-                                              Quantity = po_line-quantity
-                                              Price    = po_line-price ) ) ) )
-      MAPPED DATA(ls_mapped).
-
-    rv_po_uuid = VALUE #( ls_mapped-purchaseorder[ 1 ]-DocumentUUID OPTIONAL ).
-
-    COMMIT ENTITIES RESPONSE OF zmerp_r_purchaseorder
-      FAILED DATA(ls_save_failed)
-      REPORTED DATA(ls_save_reported).
-
-    IF ls_save_failed IS NOT INITIAL OR rv_po_uuid IS INITIAL.
-      write_failure(
-        iv_text     = |[Purchase Order]: Creation for company { lv_company_code } failed:|
-        it_messages = VALUE #( BASE VALUE #( FOR save_hdr IN ls_save_reported-purchaseorder ( save_hdr-%msg ) )
-                               FOR save_itm IN ls_save_reported-purchaseorderitem ( save_itm-%msg ) )
-        out         = out ).
-      ROLLBACK ENTITIES.
-      CLEAR rv_po_uuid.
-      RETURN.
+  METHOD write_log.
+    IF out IS BOUND.
+      out->write( iv_text ).
     ENDIF.
-
-    " 2. Release ('New' -> 'Approved')
-    IF is_po-release = abap_true.
-      MODIFY ENTITIES OF zmerp_r_purchaseorder
-        ENTITY PurchaseOrder
-        EXECUTE releaseDocument
-        FROM VALUE #( ( DocumentUUID = rv_po_uuid ) )
-        FAILED DATA(ls_release_failed)
-        REPORTED DATA(ls_release_reported).
-
-      IF ls_release_failed IS INITIAL.
-        COMMIT ENTITIES RESPONSE OF zmerp_r_purchaseorder
-          FAILED DATA(ls_commit_failed)
-          REPORTED DATA(ls_commit_reported).
-      ENDIF.
-
-      IF ls_release_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
-        write_failure(
-          iv_text     = |[Purchase Order]: Release for company { lv_company_code } failed:|
-          it_messages = VALUE #( BASE VALUE #( FOR rel_hdr IN ls_release_reported-purchaseorder ( rel_hdr-%msg ) )
-                                 FOR com_hdr IN ls_commit_reported-purchaseorder ( com_hdr-%msg ) )
-          out         = out ).
-        ROLLBACK ENTITIES.
-      ENDIF.
-    ENDIF.
-
-    SELECT SINGLE document_number, status
-      FROM zmerp_po_hdr
-      WHERE document_uuid = @rv_po_uuid
-      INTO @DATA(ls_po).
-
-    write_log( iv_text = |[Purchase Order]: { ls_po-document_number } created, status { ls_po-status }.| out = out ).
   ENDMETHOD.
-
-  METHOD create_goods_receipt.
-    IF is_gr-po_uuid IS INITIAL.
-      write_log( iv_text = '[Goods Receipt]: Skipped, the purchase order was not created.' out = out ).
-      RETURN.
-    ENDIF.
-
-    DATA(lv_date) = CONV d( cl_abap_context_info=>get_system_date( ) - is_gr-days_ago ).
-
-    " 1. Header with the purchase order reference: header fields and items (open quantities)
-    "    are derived by the goods receipt logic (deriveDocFromPurchaseOrder)
-    MODIFY ENTITIES OF zmerp_r_goodsreceipt
-      ENTITY GoodsReceipt
-      CREATE FIELDS ( PoReferenceUUID DocumentDate PostingDate ResponsiblePerson Remarks )
-      WITH VALUE #( ( %cid              = 'GR'
-                      PoReferenceUUID   = is_gr-po_uuid
-                      DocumentDate      = lv_date
-                      PostingDate       = lv_date
-                      ResponsiblePerson = is_gr-responsible
-                      Remarks           = is_gr-remarks ) )
-      MAPPED DATA(ls_mapped).
-
-    DATA(lv_gr_uuid) = VALUE #( ls_mapped-goodsreceipt[ 1 ]-DocumentUUID OPTIONAL ).
-
-    " 2. Partial receipt: the listed items get the given quantity, all others keep the open quantity
-    IF is_gr-lines IS NOT INITIAL AND lv_gr_uuid IS NOT INITIAL.
-      DATA(lt_quantities) = VALUE tt_quantities(
-        FOR gr_line IN is_gr-lines ( item_code = get_code( it_codes = is_codes-items iv_no = gr_line-item_no )
-                                     quantity  = gr_line-quantity ) ).
-
-      READ ENTITIES OF zmerp_r_goodsreceipt
-        ENTITY GoodsReceipt BY \_Items
-        FIELDS ( ItemCode )
-        WITH VALUE #( ( DocumentUUID = lv_gr_uuid ) )
-        RESULT DATA(lt_items).
-
-      MODIFY ENTITIES OF zmerp_r_goodsreceipt
-        ENTITY GoodsReceiptItem
-        UPDATE FIELDS ( Quantity )
-        WITH VALUE #( FOR gr_item IN lt_items
-                      FOR qty IN lt_quantities WHERE ( item_code = gr_item-ItemCode )
-                      ( %tky     = gr_item-%tky
-                        Quantity = qty-quantity ) ).
-    ENDIF.
-
-    COMMIT ENTITIES RESPONSE OF zmerp_r_goodsreceipt
-      FAILED DATA(ls_save_failed)
-      REPORTED DATA(ls_save_reported).
-
-    IF ls_save_failed IS NOT INITIAL OR lv_gr_uuid IS INITIAL.
-      write_failure(
-        iv_text     = '[Goods Receipt]: Saving failed:'
-        it_messages = VALUE #( BASE VALUE #( FOR save_hdr IN ls_save_reported-goodsreceipt ( save_hdr-%msg ) )
-                               FOR save_itm IN ls_save_reported-goodsreceiptitem ( save_itm-%msg ) )
-        out         = out ).
-      ROLLBACK ENTITIES.
-      RETURN.
-    ENDIF.
-
-    " 3. Posting: stock movements and the purchase order status follow the goods receipt logic
-    IF is_gr-post = abap_true.
-      MODIFY ENTITIES OF zmerp_r_goodsreceipt
-        ENTITY GoodsReceipt
-        EXECUTE postDocument
-        FROM VALUE #( ( DocumentUUID = lv_gr_uuid ) )
-        FAILED DATA(ls_post_failed)
-        REPORTED DATA(ls_post_reported).
-
-      IF ls_post_failed IS INITIAL.
-        COMMIT ENTITIES RESPONSE OF zmerp_r_goodsreceipt
-          FAILED DATA(ls_commit_failed)
-          REPORTED DATA(ls_commit_reported).
-      ENDIF.
-
-      IF ls_post_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
-        write_failure(
-          iv_text     = '[Goods Receipt]: Posting failed:'
-          it_messages = VALUE #( BASE VALUE #( BASE VALUE #( FOR post_hdr IN ls_post_reported-goodsreceipt ( post_hdr-%msg ) )
-                                               FOR post_itm IN ls_post_reported-goodsreceiptitem ( post_itm-%msg ) )
-                                 FOR com_hdr IN ls_commit_reported-goodsreceipt ( com_hdr-%msg ) )
-          out         = out ).
-        ROLLBACK ENTITIES.
-      ENDIF.
-    ENDIF.
-
-    SELECT SINGLE gr~document_number, gr~status, po~document_number AS po_number, po~status AS po_status
-      FROM zmerp_gr_hdr AS gr
-      INNER JOIN zmerp_po_hdr AS po ON po~document_uuid = gr~po_reference_uuid
-      WHERE gr~document_uuid = @lv_gr_uuid
-      INTO @DATA(ls_gr).
-
-    write_log( iv_text = |[Goods Receipt]: { ls_gr-document_number } for PO { ls_gr-po_number } created, | &&
-                         |status { ls_gr-status }; PO status { ls_gr-po_status }.|
-               out     = out ).
-  ENDMETHOD.
-
-  METHOD create_sales_order.
-    DATA(lv_today)        = cl_abap_context_info=>get_system_date( ).
-    DATA(lv_company_code) = get_code( it_codes = is_codes-companies iv_no = is_so-company_no ).
-
-    " 1. Header and items: currency, item defaults and amounts are derived by the sales order logic
-    MODIFY ENTITIES OF zmerp_r_salesorder
-      ENTITY SalesOrder
-        CREATE FIELDS ( CompanyCode WarehouseCode BusinessPartnerCode DocumentDate CustomerReference
-                        ResponsiblePerson Remarks )
-        WITH VALUE #( ( %cid                = 'SO'
-                        CompanyCode         = lv_company_code
-                        WarehouseCode       = get_code( it_codes = is_codes-warehouses iv_no = is_so-warehouse_no )
-                        BusinessPartnerCode = get_code( it_codes = is_codes-partners iv_no = is_so-partner_no )
-                        DocumentDate        = CONV d( lv_today - is_so-days_ago )
-                        CustomerReference   = is_so-customer_ref
-                        ResponsiblePerson   = is_so-responsible
-                        Remarks             = is_so-remarks ) )
-        CREATE BY \_Items
-        FIELDS ( ItemCode Quantity Price )
-        WITH VALUE #( ( %cid_ref = 'SO'
-                        %target  = VALUE #( FOR so_line IN is_so-lines INDEX INTO lv_index
-                                            ( %cid     = |SO_ITEM_{ lv_index }|
-                                              ItemCode = get_code( it_codes = is_codes-items iv_no = so_line-item_no )
-                                              Quantity = so_line-quantity
-                                              Price    = so_line-price ) ) ) )
-      MAPPED DATA(ls_mapped).
-
-    rv_so_uuid = VALUE #( ls_mapped-salesorder[ 1 ]-DocumentUUID OPTIONAL ).
-
-    COMMIT ENTITIES RESPONSE OF zmerp_r_salesorder
-      FAILED DATA(ls_save_failed)
-      REPORTED DATA(ls_save_reported).
-
-    IF ls_save_failed IS NOT INITIAL OR rv_so_uuid IS INITIAL.
-      write_failure(
-        iv_text     = |[Sales Order]: Creation for company { lv_company_code } failed:|
-        it_messages = VALUE #( BASE VALUE #( FOR save_hdr IN ls_save_reported-salesorder ( save_hdr-%msg ) )
-                               FOR save_itm IN ls_save_reported-salesorderitem ( save_itm-%msg ) )
-        out         = out ).
-      ROLLBACK ENTITIES.
-      CLEAR rv_so_uuid.
-      RETURN.
-    ENDIF.
-
-    " 2. Rejection ('Open' -> 'Rejected')
-    IF is_so-reject = abap_true.
-      MODIFY ENTITIES OF zmerp_r_salesorder
-        ENTITY SalesOrder
-        EXECUTE rejectDocument
-        FROM VALUE #( ( DocumentUUID = rv_so_uuid ) )
-        FAILED DATA(ls_reject_failed)
-        REPORTED DATA(ls_reject_reported).
-
-      IF ls_reject_failed IS INITIAL.
-        COMMIT ENTITIES RESPONSE OF zmerp_r_salesorder
-          FAILED DATA(ls_commit_failed)
-          REPORTED DATA(ls_commit_reported).
-      ENDIF.
-
-      IF ls_reject_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
-        write_failure(
-          iv_text     = |[Sales Order]: Rejection for company { lv_company_code } failed:|
-          it_messages = VALUE #( BASE VALUE #( FOR rej_hdr IN ls_reject_reported-salesorder ( rej_hdr-%msg ) )
-                                 FOR com_hdr IN ls_commit_reported-salesorder ( com_hdr-%msg ) )
-          out         = out ).
-        ROLLBACK ENTITIES.
-      ENDIF.
-    ENDIF.
-
-    SELECT SINGLE document_number, status
-      FROM zmerp_so_hdr
-      WHERE document_uuid = @rv_so_uuid
-      INTO @DATA(ls_so).
-
-    write_log( iv_text = |[Sales Order]: { ls_so-document_number } created, status { ls_so-status }.| out = out ).
-  ENDMETHOD.
-
-    METHOD create_goods_issue.
-    IF is_gi-so_uuid IS INITIAL.
-      write_log( iv_text = '[Goods Issue]: Skipped, the sales order was not created.' out = out ).
-      RETURN.
-    ENDIF.
-
-    DATA(lv_date) = CONV d( cl_abap_context_info=>get_system_date( ) - is_gi-days_ago ).
-
-    " 1. Header with the sales order reference: header fields and items (open quantities)
-    "    are derived by the goods issue logic (deriveDocFromSalesOrder)
-    MODIFY ENTITIES OF zmerp_r_goodsissue
-      ENTITY GoodsIssue
-      CREATE FIELDS ( SoReferenceUUID DocumentDate PostingDate ResponsiblePerson Remarks )
-      WITH VALUE #( ( %cid              = 'GI'
-                      SoReferenceUUID   = is_gi-so_uuid
-                      DocumentDate      = lv_date
-                      PostingDate       = lv_date
-                      ResponsiblePerson = is_gi-responsible
-                      Remarks           = is_gi-remarks ) )
-      MAPPED DATA(ls_mapped).
-
-    DATA(lv_gi_uuid) = VALUE #( ls_mapped-goodsissue[ 1 ]-DocumentUUID OPTIONAL ).
-
-    " 2. Partial issue: the listed items get the given quantity, quantity 0 removes the line,
-    "    all others keep the open quantity
-    IF is_gi-lines IS NOT INITIAL AND lv_gi_uuid IS NOT INITIAL.
-      DATA(lt_quantities) = VALUE tt_quantities(
-        FOR gi_line IN is_gi-lines ( item_code = get_code( it_codes = is_codes-items iv_no = gi_line-item_no )
-                                     quantity  = gi_line-quantity ) ).
-
-      READ ENTITIES OF zmerp_r_goodsissue
-        ENTITY GoodsIssue BY \_Items
-        FIELDS ( ItemCode )
-        WITH VALUE #( ( DocumentUUID = lv_gi_uuid ) )
-        RESULT DATA(lt_items).
-
-      MODIFY ENTITIES OF zmerp_r_goodsissue
-        ENTITY GoodsIssueItem
-          UPDATE FIELDS ( Quantity )
-          WITH VALUE #( FOR gi_item IN lt_items
-                        FOR qty IN lt_quantities WHERE ( item_code = gi_item-ItemCode AND quantity > 0 )
-                        ( %tky     = gi_item-%tky
-                          Quantity = qty-quantity ) )
-          DELETE FROM VALUE #( FOR gi_item IN lt_items
-                               FOR qty IN lt_quantities WHERE ( item_code = gi_item-ItemCode AND quantity = 0 )
-                               ( %tky = gi_item-%tky ) ).
-    ENDIF.
-
-    COMMIT ENTITIES RESPONSE OF zmerp_r_goodsissue
-      FAILED DATA(ls_save_failed)
-      REPORTED DATA(ls_save_reported).
-
-    IF ls_save_failed IS NOT INITIAL OR lv_gi_uuid IS INITIAL.
-      write_failure(
-        iv_text     = '[Goods Issue]: Saving failed:'
-        it_messages = VALUE #( BASE VALUE #( FOR save_hdr IN ls_save_reported-goodsissue ( save_hdr-%msg ) )
-                               FOR save_itm IN ls_save_reported-goodsissueitem ( save_itm-%msg ) )
-        out         = out ).
-      ROLLBACK ENTITIES.
-      RETURN.
-    ENDIF.
-
-    " 3. Posting: stock movements and the sales order status follow the goods issue logic
-    IF is_gi-post = abap_true.
-      MODIFY ENTITIES OF zmerp_r_goodsissue
-        ENTITY GoodsIssue
-        EXECUTE postDocument
-        FROM VALUE #( ( DocumentUUID = lv_gi_uuid ) )
-        FAILED DATA(ls_post_failed)
-        REPORTED DATA(ls_post_reported).
-
-      IF ls_post_failed IS INITIAL.
-        COMMIT ENTITIES RESPONSE OF zmerp_r_goodsissue
-          FAILED DATA(ls_commit_failed)
-          REPORTED DATA(ls_commit_reported).
-      ENDIF.
-
-      IF ls_post_failed IS NOT INITIAL OR ls_commit_failed IS NOT INITIAL.
-        write_failure(
-          iv_text     = '[Goods Issue]: Posting failed:'
-          it_messages = VALUE #( BASE VALUE #( BASE VALUE #( FOR post_hdr IN ls_post_reported-goodsissue ( post_hdr-%msg ) )
-                                               FOR post_itm IN ls_post_reported-goodsissueitem ( post_itm-%msg ) )
-                                 FOR com_hdr IN ls_commit_reported-goodsissue ( com_hdr-%msg ) )
-          out         = out ).
-        ROLLBACK ENTITIES.
-      ENDIF.
-    ENDIF.
-
-    SELECT SINGLE gi~document_number, gi~status, so~document_number AS so_number, so~status AS so_status
-      FROM zmerp_gi_hdr AS gi
-      INNER JOIN zmerp_so_hdr AS so ON so~document_uuid = gi~so_reference_uuid
-      WHERE gi~document_uuid = @lv_gi_uuid
-      INTO @DATA(ls_gi).
-
-    write_log( iv_text = |[Goods Issue]: { ls_gi-document_number } for SO { ls_gi-so_number } created, | &&
-                         |status { ls_gi-status }; SO status { ls_gi-so_status }.|
-               out     = out ).
-  ENDMETHOD.
-
-
 ENDCLASS.
-

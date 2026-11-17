@@ -1,0 +1,126 @@
+@Metadata.layer: #CUSTOMER
+
+@UI.headerInfo: {
+  typeName: 'Stock Transfer',
+  typeNamePlural: 'Stock Transfers',
+  title: { value: 'DocumentNumber' },
+  description: { value: 'StatusDescription' }
+}
+
+@UI.presentationVariant: [{
+  sortOrder: [{ by: 'DocumentNumber', direction: #DESC }]
+}]
+
+annotate view ZMERP_C_STOCKTRANSFER with
+{
+  @UI.facet: [
+    {
+      id: 'GeneralSection',
+      purpose: #STANDARD,
+      type: #COLLECTION,
+      label: 'General Information',
+      position: 10
+    },
+    {
+      id: 'OrgGroupSubSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      parentId: 'GeneralSection',
+      targetQualifier: 'OrgGroup',
+      position: 10
+    },
+    {
+      id: 'DatesGroupSubSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      parentId: 'GeneralSection',
+      targetQualifier: 'DatesGroup',
+      position: 20
+    },
+    {
+      id: 'ItemsSection',
+      purpose: #STANDARD,
+      type: #LINEITEM_REFERENCE,
+      label: 'Line Items',
+      targetElement: '_Items',
+      position: 20
+    },
+    {
+      id: 'AdminHeaderSection',
+      purpose: #STANDARD,
+      type: #FIELDGROUP_REFERENCE,
+      label: 'Administrative Data',
+      targetQualifier: 'AdminGroup',
+      position: 30,
+      hidden: true
+    }
+  ]
+
+  @UI.textArrangement: #TEXT_ONLY
+  @UI.hidden: true
+  DocumentUUID;
+
+  @UI.identification: [
+    { type: #FOR_ACTION, dataAction: 'postDocument',   label: 'Post',   position: 10 },
+    { type: #FOR_ACTION, dataAction: 'unpostDocument', label: 'Unpost', position: 15 },
+    { type: #FOR_ACTION, dataAction: 'cancelDocument', label: 'Cancel', position: 20 }
+  ]
+  @UI.lineItem: [
+    { position: 10, importance: #HIGH },
+    { type: #FOR_ACTION, dataAction: 'postDocument',   label: 'Post' },
+    { type: #FOR_ACTION, dataAction: 'unpostDocument', label: 'Unpost' },
+    { type: #FOR_ACTION, dataAction: 'cancelDocument', label: 'Cancel' }
+  ]
+  @UI.selectionField: [{ position: 10 }]
+  DocumentNumber;
+
+  @UI.lineItem: [{ position: 20, importance: #HIGH }]
+  @UI.selectionField: [{ position: 20 }]
+  Status;
+
+  @UI.lineItem: [{ position: 30, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'DatesGroup', position: 10 }]
+  @UI.selectionField: [{ position: 30 }]
+  DocumentDate;
+
+  @UI.lineItem: [{ position: 40, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'OrgGroup', position: 10 }]
+  @UI.selectionField: [{ position: 40 }]
+  CompanyCode;
+
+  @UI.lineItem: [{ position: 50, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'OrgGroup', position: 20 }]
+  @UI.selectionField: [{ position: 50 }]
+  WarehouseCode;
+
+  @UI.lineItem: [{ position: 60, importance: #HIGH }]
+  @UI.fieldGroup: [{ qualifier: 'OrgGroup', position: 30 }]
+  @UI.selectionField: [{ position: 60 }]
+  ReceivingWarehouseCode;
+
+  @UI.lineItem: [{ position: 70, importance: #MEDIUM }]
+  @UI.fieldGroup: [{ qualifier: 'DatesGroup', position: 20 }]
+  PostingDate;
+
+  @UI.fieldGroup: [{ qualifier: 'DatesGroup', position: 30 }]
+  ResponsiblePerson;
+
+  @UI.lineItem: [{ position: 80, importance: #LOW }]
+  @UI.fieldGroup: [{ qualifier: 'DatesGroup', position: 40 }]
+  Remarks;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 10 }]
+  CreatedBy;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 20 }]
+  CreatedAt;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 30 }]
+  LocalLastChangedBy;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 40 }]
+  LocalLastChangedAt;
+
+  @UI.fieldGroup: [{ qualifier: 'AdminGroup', position: 50 }]
+  LastChangedAt;
+}

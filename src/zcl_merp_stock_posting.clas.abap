@@ -15,19 +15,21 @@ CLASS zcl_merp_stock_posting DEFINITION
            tt_document_keys TYPE STANDARD TABLE OF ty_document_key WITH EMPTY KEY.
 
     "! One movement of a document line. Receipts have a positive quantity and bring their value
-    "! (company currency); issues have a negative quantity and are valued by the stock posting
-    "! (their amount is ignored).
+    "! (company currency); issues have a negative quantity and are valued by the stock posting.
+    "! An issue with a receiving warehouse is a stock transfer: the stock posting adds the receipt
+    "! in the receiving warehouse with the value of the issue.
     TYPES: BEGIN OF ty_movement,
-             document_uuid      TYPE zmerp_stock_mov-document_uuid,
-             document_item_uuid TYPE zmerp_stock_mov-document_item_uuid,
-             company_code       TYPE zmerp_stock_mov-company_code,
-             warehouse_code     TYPE zmerp_stock_mov-warehouse_code,
-             item_code          TYPE zmerp_stock_mov-item_code,
-             quantity           TYPE zmerp_stock_mov-quantity,
-             unit_of_measure    TYPE zmerp_stock_mov-unit_of_measure,
-             amount             TYPE zmerp_stock_mov-amount,
-             currency_code      TYPE zmerp_stock_mov-currency_code,
-             posting_date       TYPE zmerp_stock_mov-posting_date,
+             document_uuid            TYPE zmerp_stock_mov-document_uuid,
+             document_item_uuid       TYPE zmerp_stock_mov-document_item_uuid,
+             company_code             TYPE zmerp_stock_mov-company_code,
+             warehouse_code           TYPE zmerp_stock_mov-warehouse_code,
+             receiving_warehouse_code TYPE zmerp_stock_mov-warehouse_code,
+             item_code                TYPE zmerp_stock_mov-item_code,
+             quantity                 TYPE zmerp_stock_mov-quantity,
+             unit_of_measure          TYPE zmerp_stock_mov-unit_of_measure,
+             amount                   TYPE zmerp_stock_mov-amount,
+             currency_code            TYPE zmerp_stock_mov-currency_code,
+             posting_date             TYPE zmerp_stock_mov-posting_date,
            END OF ty_movement,
            tt_movements TYPE STANDARD TABLE OF ty_movement WITH EMPTY KEY.
 
@@ -40,7 +42,7 @@ CLASS zcl_merp_stock_posting DEFINITION
     "! Inserts the movements of document lines. Services (item type S) are not kept in stock
     "! and are skipped (GR31). Issues are valued at moving average cost of the current stock (ST2):
     "! call after the old movements of the documents are removed.
-    "! @parameter iv_document_type | Document type of the movements ('GR', 'GI')
+    "! @parameter iv_document_type | Document type of the movements ('GR', 'GI', 'ST')
     "! @parameter it_movements     | Movements of the document lines (one or several documents)
     CLASS-METHODS insert_movements
       IMPORTING
@@ -51,7 +53,8 @@ ENDCLASS.
 
 
 
-CLASS zcl_merp_stock_posting IMPLEMENTATION.
+CLASS ZCL_MERP_STOCK_POSTING IMPLEMENTATION.
+
 
   METHOD delete_document_movements.
     IF it_document_keys IS INITIAL.
@@ -69,6 +72,7 @@ CLASS zcl_merp_stock_posting IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
+
   METHOD insert_movements.
     DATA lt_db_movements TYPE STANDARD TABLE OF zmerp_stock_mov WITH EMPTY KEY.
     DATA lt_stock        TYPE zif_merp_stock_sel=>tt_balances.
@@ -82,11 +86,18 @@ CLASS zcl_merp_stock_posting IMPLEMENTATION.
     DATA(lt_stock_items) = NEW zcl_merp_md_item_sel( )->zif_merp_md_item_sel~read_stock_items(
       VALUE #( FOR movement IN it_movements ( ItemCode = movement-item_code ) ) ).
 
-    " Current stock quantity and value of the issued items (the stock is locked by the posting action)
+    " Current stock of the issuing warehouses and of the receiving warehouses of transfers
+    " (the stock is locked by the posting action)
     DATA(lt_stock_keys) = VALUE zif_merp_stock_sel=>tt_stock_keys(
       FOR movement IN it_movements WHERE ( quantity < 0 )
       ( CompanyCode   = movement-company_code
         WarehouseCode = movement-warehouse_code
+        ItemCode      = movement-item_code
+        UnitOfMeasure = movement-unit_of_measure ) ).
+    lt_stock_keys = VALUE #( BASE lt_stock_keys
+      FOR movement IN it_movements WHERE ( receiving_warehouse_code IS NOT INITIAL )
+      ( CompanyCode   = movement-company_code
+        WarehouseCode = movement-receiving_warehouse_code
         ItemCode      = movement-item_code
         UnitOfMeasure = movement-unit_of_measure ) ).
     IF lt_stock_keys IS NOT INITIAL.
@@ -150,6 +161,44 @@ CLASS zcl_merp_stock_posting IMPLEMENTATION.
             local_last_changed_at = lv_timestamp
             last_changed_at       = lv_timestamp
           ) TO lt_db_movements.
+
+          " Stock transfer: the receiving warehouse takes the quantity with the value of the issue,
+          " so its moving average follows (as SAP movement type 301)
+          IF lr_movement->receiving_warehouse_code IS NOT INITIAL.
+            ASSIGN lt_stock[ CompanyCode   = lr_movement->company_code
+                             WarehouseCode = lr_movement->receiving_warehouse_code
+                             ItemCode      = lr_movement->item_code
+                             UnitOfMeasure = lr_movement->unit_of_measure ] TO FIELD-SYMBOL(<ls_receiving_stock>).
+            IF sy-subrc <> 0.
+              INSERT VALUE #( CompanyCode   = lr_movement->company_code
+                              WarehouseCode = lr_movement->receiving_warehouse_code
+                              ItemCode      = lr_movement->item_code
+                              UnitOfMeasure = lr_movement->unit_of_measure )
+                INTO TABLE lt_stock ASSIGNING <ls_receiving_stock>.
+            ENDIF.
+            <ls_receiving_stock>-Quantity   -= lr_movement->quantity.
+            <ls_receiving_stock>-StockValue -= lv_amount.
+
+            APPEND VALUE #(
+              movement_uuid         = cl_system_uuid=>create_uuid_x16_static( )
+              company_code          = lr_movement->company_code
+              warehouse_code        = lr_movement->receiving_warehouse_code
+              item_code             = lr_movement->item_code
+              quantity              = - lr_movement->quantity
+              unit_of_measure       = lr_movement->unit_of_measure
+              amount                = - lv_amount
+              currency_code         = lr_movement->currency_code
+              posting_date          = lr_movement->posting_date
+              document_type         = iv_document_type
+              document_uuid         = lr_movement->document_uuid
+              document_item_uuid    = lr_movement->document_item_uuid
+              created_by            = lv_user
+              created_at            = lv_timestamp
+              local_last_changed_by = lv_user
+              local_last_changed_at = lv_timestamp
+              last_changed_at       = lv_timestamp
+            ) TO lt_db_movements.
+          ENDIF.
         CATCH cx_uuid_error INTO DATA(lx_uuid).
           " A posted document without its stock movement would break the stock:
           " abort the save (the whole transaction is rolled back) instead of skipping the movement

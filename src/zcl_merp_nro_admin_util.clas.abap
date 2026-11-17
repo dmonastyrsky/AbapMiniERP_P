@@ -46,7 +46,10 @@ CLASS zcl_merp_nro_admin_util DEFINITION
 
 ENDCLASS.
 
-CLASS zcl_merp_nro_admin_util IMPLEMENTATION.
+
+
+CLASS ZCL_MERP_NRO_ADMIN_UTIL IMPLEMENTATION.
+
 
   METHOD get_next_numbers_from_nro.
     DATA lv_raw_number TYPE cl_numberrange_runtime=>nr_number.
@@ -93,37 +96,6 @@ CLASS zcl_merp_nro_admin_util IMPLEMENTATION.
     ENDTRY.
   ENDMETHOD.
 
-  METHOD reset_master_intervals.
-    DATA(lt_objects) = get_master_nro_objects( ).
-
-    LOOP AT lt_objects ASSIGNING FIELD-SYMBOL(<lv_object>).
-      save_interval(
-        iv_object = CONV #( <lv_object> )
-        iv_level  = 0 ).
-    ENDLOOP.
-  ENDMETHOD.
-
-  METHOD reset_doc_intervals.
-    " All companies, also blocked ones: otherwise their intervals keep an old level after clearing data
-    SELECT company_code
-      FROM zmerp_comp_code
-      INTO TABLE @DATA(lt_companies).
-
-    LOOP AT lt_companies ASSIGNING FIELD-SYMBOL(<ls_company>).
-      reset_company_doc_intervals( <ls_company>-company_code ).
-    ENDLOOP.
-  ENDMETHOD.
-
-  METHOD reset_company_doc_intervals.
-    DATA(lt_doc_objects) = get_doc_nro_objects( ).
-
-    LOOP AT lt_doc_objects ASSIGNING FIELD-SYMBOL(<lv_doc_object>).
-      save_interval(
-        iv_object    = CONV #( <lv_doc_object> )
-        iv_subobject = CONV #( iv_company_code )
-        iv_level     = 0 ).
-    ENDLOOP.
-  ENDMETHOD.
 
   METHOD save_interval.
     DATA: lt_interval TYPE TABLE OF cl_numberrange_intervals=>nr_nriv_line,
@@ -166,6 +138,19 @@ CLASS zcl_merp_nro_admin_util IMPLEMENTATION.
     ENDTRY.
   ENDMETHOD.
 
+
+  METHOD reset_company_doc_intervals.
+    DATA(lt_doc_objects) = get_doc_nro_objects( ).
+
+    LOOP AT lt_doc_objects ASSIGNING FIELD-SYMBOL(<lv_doc_object>).
+      save_interval(
+        iv_object    = CONV #( <lv_doc_object> )
+        iv_subobject = CONV #( iv_company_code )
+        iv_level     = 0 ).
+    ENDLOOP.
+  ENDMETHOD.
+
+
   METHOD get_master_nro_objects.
     rt_objects = VALUE #(
       ( CONV string( zif_merp_constants=>c_bp-number_object ) )
@@ -176,13 +161,37 @@ CLASS zcl_merp_nro_admin_util IMPLEMENTATION.
     ).
   ENDMETHOD.
 
+
   METHOD get_doc_nro_objects.
     rt_objects = VALUE #(
       ( CONV string( zif_merp_constants=>c_po-number_object ) )
       ( CONV string( zif_merp_constants=>c_gr-number_object ) )
       ( CONV string( zif_merp_constants=>c_so-number_object ) )
       ( CONV string( zif_merp_constants=>c_gi-number_object ) )
+      ( CONV string( zif_merp_constants=>c_st-number_object ) )
     ).
   ENDMETHOD.
 
+
+  METHOD reset_doc_intervals.
+    " All companies, also blocked ones: otherwise their intervals keep an old level after clearing data
+    SELECT company_code
+      FROM zmerp_comp_code
+      INTO TABLE @DATA(lt_companies).
+
+    LOOP AT lt_companies ASSIGNING FIELD-SYMBOL(<ls_company>).
+      reset_company_doc_intervals( <ls_company>-company_code ).
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD reset_master_intervals.
+    DATA(lt_objects) = get_master_nro_objects( ).
+
+    LOOP AT lt_objects ASSIGNING FIELD-SYMBOL(<lv_object>).
+      save_interval(
+        iv_object = CONV #( <lv_object> )
+        iv_level  = 0 ).
+    ENDLOOP.
+  ENDMETHOD.
 ENDCLASS.

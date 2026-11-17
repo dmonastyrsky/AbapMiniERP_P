@@ -9,7 +9,7 @@ define view entity ZMERP_C_GOODSISSUEITM
   key ItemUUID,
       HeaderUUID,
 
-      /* zmerp_s_doc_itm_common */
+      /* zmerp_s_doc_itm_base */
       ItemNo,
 
       @Search.defaultSearchElement: true
@@ -21,6 +21,7 @@ define view entity ZMERP_C_GOODSISSUEITM
       @Consumption.valueHelpDefinition: [{ entity: { name: 'I_UnitOfMeasureStdVH', element: 'UnitOfMeasure' }, useForValidation: true }]
       UnitOfMeasure,
 
+      /* zmerp_s_doc_itm_commercial */
       @Consumption.valueHelpDefinition: [{ entity: { name: 'I_CurrencyStdVH', element: 'CurrencyCode' }, useForValidation: true }]
       CurrencyCode,
 
@@ -42,9 +43,9 @@ define view entity ZMERP_C_GOODSISSUEITM
       // Empty for lines added manually (without sales order item reference)
       _SoProgress.SoDocumentNumber as SoDocumentNumber,
 
-      // Current stock of the item in the warehouse of the document (ST1)
+      // Current stock of the item in the warehouse of the line, also in unsaved drafts (ST1)
       @Semantics.quantity.unitOfMeasure: 'UnitOfMeasure'
-      _Stock.StockQuantity as StockQuantity,
+      _Stock.Quantity as StockQuantity,
 
       /* zmerp_s_admin */
       CreatedBy,

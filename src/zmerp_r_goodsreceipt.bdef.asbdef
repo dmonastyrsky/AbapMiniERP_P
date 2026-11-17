@@ -32,12 +32,13 @@ authorization master ( global )
   action ( features : instance ) cancelDocument result [1] $self;
   action ( features : instance ) unpostDocument result [1] $self;
 
-  determination setHeaderDefaults         on modify { create; }
+  determination setHeaderDefaults          on modify { create; }
   determination deriveHeaderOnCompanyCode  on modify { field CompanyCode; }
   determination deriveDocFromPurchaseOrder on modify { field PoReferenceUUID; }
-  determination syncItemCurrency          on modify { field CurrencyCode; }
-  determination assignDocumentNumber      on save { create; }
   determination deriveDatesOnDocumentDate  on modify { field DocumentDate; }
+  determination syncItemCurrency           on modify { field CurrencyCode; }
+  determination syncItemWarehouse          on modify { field WarehouseCode; }
+  determination assignDocumentNumber       on save { create; }
 
   determination clearMessagesForDates     on modify { field DocumentDate, PostingDate; }
   determination clearMessagesForHeaderFields on modify { field CompanyCode, WarehouseCode, BusinessPartnerCode, CurrencyCode, PoReferenceUUID; }
@@ -100,7 +101,7 @@ authorization dependent by _GoodsReceipt
   field ( readonly ) HeaderUUID;
   field ( readonly ) PoItemReferenceUUID;
 
-  field ( readonly ) ItemNo, UnitOfMeasure;
+  field ( readonly ) ItemNo, UnitOfMeasure, WarehouseCode;
   field ( readonly ) NetAmount, VatAmount, GrossAmount;
   field ( readonly ) CreatedBy, CreatedAt, LocalLastChangedBy, LocalLastChangedAt, LastChangedAt;
 
@@ -115,7 +116,7 @@ authorization dependent by _GoodsReceipt
   determination calcHeaderTotals         on modify { create; update; delete; field NetAmount, GrossAmount; }
 
   determination clearMessagesForItemFields on modify { field Quantity, Price, UnitOfMeasure, VatCode; }
-  determination handleMessagesOnItemModify on modify { field ItemCode; }
+  determination handleMessagesOnItemModify on modify { delete; field ItemCode; }
 
   validation validateItemFields on save { create; update; field ItemCode, Quantity, Price, VatCode; }
 
@@ -127,6 +128,7 @@ authorization dependent by _GoodsReceipt
     ItemCode             = item_code;
     Quantity             = quantity;
     UnitOfMeasure        = unit_of_measure;
+    WarehouseCode        = warehouse_code;
     CurrencyCode         = currency_code;
     Price                = price;
     NetAmount            = net_amount;

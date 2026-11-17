@@ -60,7 +60,9 @@ CLASS zcl_merp_doc_calc DEFINITION
 ENDCLASS.
 
 
-CLASS zcl_merp_doc_calc IMPLEMENTATION.
+
+CLASS ZCL_MERP_DOC_CALC IMPLEMENTATION.
+
 
   METHOD calc_on_qty_price_change.
     rs_amounts-net_amount   = net_amount( iv_quantity = iv_quantity
@@ -71,13 +73,11 @@ CLASS zcl_merp_doc_calc IMPLEMENTATION.
                                             iv_vat_amount = rs_amounts-vat_amount ).
   ENDMETHOD.
 
-  METHOD calc_on_vat_rate_change.
-    rs_amounts              = is_amounts.
-    rs_amounts-vat_amount   = vat_amount( iv_net_amount     = is_amounts-net_amount
-                                          iv_vat_percentage = iv_vat_percentage ).
-    rs_amounts-gross_amount = gross_amount( iv_net_amount = is_amounts-net_amount
-                                            iv_vat_amount = rs_amounts-vat_amount ).
+
+  METHOD gross_amount.
+    rv_gross_amount = iv_net_amount + iv_vat_amount.
   ENDMETHOD.
+
 
   METHOD calculate_header_totals.
     CLEAR rs_totals.
@@ -87,19 +87,24 @@ CLASS zcl_merp_doc_calc IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
-  METHOD net_amount.
-    rv_net_amount = round( val = iv_quantity * iv_price
-                           dec = c_amount_decimals ).
-  ENDMETHOD.
 
   METHOD vat_amount.
     rv_vat_amount = round( val = iv_net_amount * iv_vat_percentage / 100
                            dec = c_amount_decimals ).
   ENDMETHOD.
 
-  METHOD gross_amount.
-    rv_gross_amount = iv_net_amount + iv_vat_amount.
+
+  METHOD net_amount.
+    rv_net_amount = round( val = iv_quantity * iv_price
+                           dec = c_amount_decimals ).
   ENDMETHOD.
 
-ENDCLASS.
 
+  METHOD calc_on_vat_rate_change.
+    rs_amounts              = is_amounts.
+    rs_amounts-vat_amount   = vat_amount( iv_net_amount     = is_amounts-net_amount
+                                          iv_vat_percentage = iv_vat_percentage ).
+    rs_amounts-gross_amount = gross_amount( iv_net_amount = is_amounts-net_amount
+                                            iv_vat_amount = rs_amounts-vat_amount ).
+  ENDMETHOD.
+ENDCLASS.

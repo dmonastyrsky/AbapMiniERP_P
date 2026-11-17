@@ -12,14 +12,14 @@ define view entity ZMERP_R_GOODSISSUEITM
   association [0..1] to I_Currency            as _Currency       on $projection.CurrencyCode = _Currency.Currency
   association [0..1] to ZMERP_R_SALESORDERITM as _SalesOrderItem on $projection.SoItemReferenceUUID = _SalesOrderItem.ItemUUID
   association [0..1] to ZMERP_I_SO_PROGRESS   as _SoProgress     on $projection.SoItemReferenceUUID = _SoProgress.SoItemUUID
-  association [0..1] to ZMERP_I_GI_STOCK      as _Stock          on  $projection.HeaderUUID    = _Stock.DocumentUUID
+  association [0..1] to ZMERP_R_STOCK_BALANCE as _Stock          on  $projection.WarehouseCode = _Stock.WarehouseCode
                                                                  and $projection.ItemCode      = _Stock.ItemCode
                                                                  and $projection.UnitOfMeasure = _Stock.UnitOfMeasure
 {
   key item_uuid              as ItemUUID,
       header_uuid            as HeaderUUID,
 
-      /* zmerp_s_doc_itm_common */
+      /* zmerp_s_doc_itm_base */
       item_no                as ItemNo,
 
       @ObjectModel.foreignKey.association: '_Item'
@@ -31,6 +31,9 @@ define view entity ZMERP_R_GOODSISSUEITM
       @ObjectModel.foreignKey.association: '_UnitOfMeasure'
       unit_of_measure        as UnitOfMeasure,
 
+      warehouse_code         as WarehouseCode,
+
+      /* zmerp_s_doc_itm_commercial */
       @ObjectModel.foreignKey.association: '_Currency'
       currency_code          as CurrencyCode,
 

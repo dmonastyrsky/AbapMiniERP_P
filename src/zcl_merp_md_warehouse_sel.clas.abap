@@ -15,7 +15,10 @@ CLASS zcl_merp_md_warehouse_sel DEFINITION
       RETURNING VALUE(rt_keys) TYPE zif_merp_md_warehouse_sel=>tt_warehouse_keys.
 ENDCLASS.
 
-CLASS zcl_merp_md_warehouse_sel IMPLEMENTATION.
+
+
+CLASS ZCL_MERP_MD_WAREHOUSE_SEL IMPLEMENTATION.
+
 
   METHOD zif_merp_md_warehouse_sel~read_warehouse.
     DATA(lt_warehouses) = zif_merp_md_warehouse_sel~read_warehouses(
@@ -34,6 +37,7 @@ CLASS zcl_merp_md_warehouse_sel IMPLEMENTATION.
     ENDTRY.
   ENDMETHOD.
 
+
   METHOD zif_merp_md_warehouse_sel~read_warehouses.
     DATA(lt_clean_keys) = prepare_keys( it_warehouse_keys ).
     IF lt_clean_keys IS INITIAL.
@@ -45,6 +49,15 @@ CLASS zcl_merp_md_warehouse_sel IMPLEMENTATION.
       INNER JOIN @lt_clean_keys AS keys ON wh~WarehouseCode = keys~WarehouseCode
       INTO TABLE @rt_warehouses.
   ENDMETHOD.
+
+
+  METHOD prepare_keys.
+    rt_keys = it_keys.
+    DELETE rt_keys WHERE WarehouseCode IS INITIAL.
+    SORT rt_keys BY WarehouseCode.
+    DELETE ADJACENT DUPLICATES FROM rt_keys COMPARING WarehouseCode.
+  ENDMETHOD.
+
 
   METHOD zif_merp_md_warehouse_sel~read_usages.
     DATA(lt_clean_keys) = prepare_keys( it_warehouse_keys ).
@@ -58,13 +71,4 @@ CLASS zcl_merp_md_warehouse_sel IMPLEMENTATION.
       INNER JOIN @lt_clean_keys AS keys ON usage~WarehouseCode = keys~WarehouseCode
       INTO CORRESPONDING FIELDS OF TABLE @rt_usages.
   ENDMETHOD.
-
-  METHOD prepare_keys.
-    rt_keys = it_keys.
-    DELETE rt_keys WHERE WarehouseCode IS INITIAL.
-    SORT rt_keys BY WarehouseCode.
-    DELETE ADJACENT DUPLICATES FROM rt_keys COMPARING WarehouseCode.
-  ENDMETHOD.
-
 ENDCLASS.
-

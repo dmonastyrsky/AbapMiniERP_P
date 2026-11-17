@@ -28,7 +28,10 @@ CLASS zcx_merp_base DEFINITION
 ENDCLASS.
 
 
-CLASS zcx_merp_base IMPLEMENTATION.
+
+CLASS ZCX_MERP_BASE IMPLEMENTATION.
+
+
   METHOD constructor ##ADT_SUPPRESS_GENERATION.
     super->constructor( previous = previous ).
 

@@ -66,7 +66,7 @@ use etag
     action fillOpenQuantity affects field Quantity, field NetAmount, field VatAmount, field GrossAmount,
         field _GoodsIssue.TotalNetAmount, field _GoodsIssue.TotalGrossAmount, messages;
 
-    field ItemCode affects field UnitOfMeasure, field VatCode, field VatAmount, field GrossAmount, messages;
+    field ItemCode affects field UnitOfMeasure, field VatCode, field VatAmount, field GrossAmount, field StockQuantity, messages;
     field Quantity affects field NetAmount, field VatAmount, field GrossAmount, messages;
     field Price affects field NetAmount, field VatAmount, field GrossAmount, messages;
     field VatCode affects field VatAmount, field GrossAmount, messages;

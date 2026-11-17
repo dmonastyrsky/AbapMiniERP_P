@@ -9,7 +9,7 @@ define view entity ZMERP_C_GOODSRECEIPTITM
   key ItemUUID,
       HeaderUUID,
 
-      /* zmerp_s_doc_itm_common */
+      /* zmerp_s_doc_itm_base */
       ItemNo,
 
       @Search.defaultSearchElement: true
@@ -21,6 +21,7 @@ define view entity ZMERP_C_GOODSRECEIPTITM
       @Consumption.valueHelpDefinition: [{ entity: { name: 'I_UnitOfMeasureStdVH', element: 'UnitOfMeasure' }, useForValidation: true }]
       UnitOfMeasure,
 
+      /* zmerp_s_doc_itm_commercial */
       @Consumption.valueHelpDefinition: [{ entity: { name: 'I_CurrencyStdVH', element: 'CurrencyCode' }, useForValidation: true }]
       CurrencyCode,
 

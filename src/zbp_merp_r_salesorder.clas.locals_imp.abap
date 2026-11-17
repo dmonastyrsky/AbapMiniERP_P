@@ -77,6 +77,11 @@ CLASS lhc_zmerp_r_salesorder DEFINITION INHERITING FROM cl_abap_behavior_handler
       IMPORTING
         keys FOR SalesOrder~syncItemCurrency.
 
+    "! Keeps the warehouse of all items in sync with the header warehouse.
+    METHODS syncItemWarehouse FOR DETERMINE ON MODIFY
+      IMPORTING
+        keys FOR SalesOrder~syncItemWarehouse.
+
     " --- Determinations on save ---
     "! Assigns the document number from the number range on first save.
     METHODS assignDocumentNumber FOR DETERMINE ON SAVE
@@ -690,6 +695,44 @@ CLASS lhc_zmerp_r_salesorder IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
+  METHOD syncItemWarehouse.
+    DATA lt_items_to_update TYPE TABLE FOR UPDATE zmerp_r_salesorder\\SalesOrderItem.
+
+    READ ENTITIES OF zmerp_r_salesorder IN LOCAL MODE
+      ENTITY SalesOrder
+        FIELDS ( WarehouseCode )
+        WITH CORRESPONDING #( keys )
+        RESULT DATA(lt_headers)
+      ENTITY SalesOrder BY \_Items
+        FIELDS ( HeaderUUID WarehouseCode )
+        WITH CORRESPONDING #( keys )
+        RESULT DATA(lt_items).
+
+    IF lt_headers IS INITIAL OR lt_items IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    LOOP AT lt_items REFERENCE INTO DATA(lr_item).
+      ASSIGN lt_headers[ DocumentUUID = lr_item->HeaderUUID
+                         %is_draft    = lr_item->%is_draft ] TO FIELD-SYMBOL(<ls_header>).
+
+      " Item warehouse follows the header warehouse
+      IF sy-subrc = 0 AND lr_item->WarehouseCode <> <ls_header>-WarehouseCode.
+        APPEND VALUE #(
+          %tky          = lr_item->%tky
+          WarehouseCode = <ls_header>-WarehouseCode
+        ) TO lt_items_to_update.
+      ENDIF.
+    ENDLOOP.
+
+    IF lt_items_to_update IS NOT INITIAL.
+      MODIFY ENTITIES OF zmerp_r_salesorder IN LOCAL MODE
+        ENTITY SalesOrderItem
+        UPDATE FIELDS ( WarehouseCode )
+        WITH lt_items_to_update.
+    ENDIF.
+  ENDMETHOD.
+
   " --- Determinations on save ---
   METHOD assignDocumentNumber.
     DATA lt_so_update TYPE TABLE FOR UPDATE zmerp_r_salesorder.
@@ -1089,6 +1132,9 @@ CLASS lhc_zmerp_r_salesorderitm DEFINITION INHERITING FROM cl_abap_behavior_hand
     " and consumed (and cleared) by calcHeaderTotals within the same request
     CLASS-DATA gt_deleted_headers TYPE STANDARD TABLE OF ty_header_key WITH EMPTY KEY.
 
+    " Static buffer: parents of the items being deleted, consumed (and cleared) by handleMessagesOnItemModify
+    CLASS-DATA gt_deleted_dup_headers TYPE STANDARD TABLE OF ty_header_key WITH EMPTY KEY.
+
     " --- Access and state ---
     "! Remembers the parent documents of the items being deleted, so that calcHeaderTotals
     "! can still recalculate their totals after the deletion.
@@ -1146,8 +1192,12 @@ CLASS lhc_zmerp_r_salesorderitm IMPLEMENTATION.
       WITH CORRESPONDING #( keys )
       RESULT DATA(lt_items).
 
-    " Parents of the deleted items, for calcHeaderTotals
+    " Parents of the deleted items, for calcHeaderTotals and for the duplicate check
     gt_deleted_headers = VALUE #( BASE gt_deleted_headers
+      FOR item IN lt_items ( document_uuid = item-HeaderUUID
+                             is_draft      = item-%is_draft ) ).
+
+    gt_deleted_dup_headers = VALUE #( BASE gt_deleted_dup_headers
       FOR item IN lt_items ( document_uuid = item-HeaderUUID
                              is_draft      = item-%is_draft ) ).
   ENDMETHOD.
@@ -1155,14 +1205,14 @@ CLASS lhc_zmerp_r_salesorderitm IMPLEMENTATION.
   " --- Determinations on modify ---
   METHOD setItemDefaults.
 
-    " Items and their parent headers (document currency)
+    " Items and their parent headers (document currency and warehouse)
     READ ENTITIES OF zmerp_r_salesorder IN LOCAL MODE
       ENTITY SalesOrderItem
-        FIELDS ( HeaderUUID ItemNo ItemCode UnitOfMeasure VatCode CurrencyCode )
+        FIELDS ( HeaderUUID ItemNo ItemCode UnitOfMeasure VatCode CurrencyCode WarehouseCode )
         WITH CORRESPONDING #( keys )
         RESULT DATA(lt_items)
       ENTITY SalesOrderItem BY \_SalesOrder
-        FIELDS ( CurrencyCode )
+        FIELDS ( CurrencyCode WarehouseCode )
         WITH CORRESPONDING #( keys )
         RESULT DATA(lt_headers).
 
@@ -1179,10 +1229,10 @@ CLASS lhc_zmerp_r_salesorderitm IMPLEMENTATION.
 
     " Delegate the defaulting to the shared item logic (same for all documents), only changed items are returned
     DATA(lt_changed) = NEW zcl_merp_doc_item_logic( )->set_defaults(
-      it_items             = CORRESPONDING #( lt_items MAPPING IsDraft = %is_draft )
-      it_siblings          = CORRESPONDING #( lt_siblings MAPPING IsDraft = %is_draft )
-      it_header_currencies = CORRESPONDING #( lt_headers MAPPING HeaderUUID = DocumentUUID
-                                                                 IsDraft    = %is_draft ) ).
+      it_items           = CORRESPONDING #( lt_items MAPPING IsDraft = %is_draft )
+      it_siblings        = CORRESPONDING #( lt_siblings MAPPING IsDraft = %is_draft )
+      it_header_defaults = CORRESPONDING #( lt_headers MAPPING HeaderUUID = DocumentUUID
+                                                               IsDraft    = %is_draft ) ).
 
     DATA lt_update TYPE TABLE FOR UPDATE zmerp_r_salesorder\\SalesOrderItem.
 
@@ -1196,6 +1246,7 @@ CLASS lhc_zmerp_r_salesorderitm IMPLEMENTATION.
           %tky          = <ls_item>-%tky
           ItemNo        = lr_changed->ItemNo
           CurrencyCode  = lr_changed->CurrencyCode
+          WarehouseCode = lr_changed->WarehouseCode
           UnitOfMeasure = lr_changed->UnitOfMeasure
           VatCode       = lr_changed->VatCode
         ) TO lt_update.
@@ -1205,7 +1256,7 @@ CLASS lhc_zmerp_r_salesorderitm IMPLEMENTATION.
     IF lt_update IS NOT INITIAL.
       MODIFY ENTITIES OF zmerp_r_salesorder IN LOCAL MODE
         ENTITY SalesOrderItem
-        UPDATE FIELDS ( ItemNo CurrencyCode UnitOfMeasure VatCode )
+        UPDATE FIELDS ( ItemNo CurrencyCode WarehouseCode UnitOfMeasure VatCode )
         WITH lt_update.
     ENDIF.
   ENDMETHOD.
@@ -1577,27 +1628,32 @@ CLASS lhc_zmerp_r_salesorderitm IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD handleMessagesOnItemModify.
+    DATA lt_header_keys TYPE TABLE FOR READ IMPORT zmerp_r_salesorder.
+
+    " Documents of the changed items; deleted items cannot be read, their documents come from precheck_delete
     READ ENTITIES OF zmerp_r_salesorder IN LOCAL MODE
       ENTITY SalesOrderItem
-      FIELDS ( HeaderUUID ItemCode )
+      FIELDS ( HeaderUUID )
       WITH CORRESPONDING #( keys )
       RESULT DATA(lt_items).
 
-    IF lt_items IS INITIAL.
+    lt_header_keys = VALUE #(
+      FOR item IN lt_items ( %tky-DocumentUUID = item-HeaderUUID
+                             %is_draft         = item-%is_draft ) ).
+
+    lt_header_keys = VALUE #( BASE lt_header_keys
+      FOR deleted IN gt_deleted_dup_headers ( %tky-DocumentUUID = deleted-document_uuid
+                                              %is_draft         = deleted-is_draft ) ).
+    CLEAR gt_deleted_dup_headers.
+
+    SORT lt_header_keys BY DocumentUUID %is_draft.
+    DELETE ADJACENT DUPLICATES FROM lt_header_keys COMPARING DocumentUUID %is_draft.
+
+    IF lt_header_keys IS INITIAL.
       RETURN.
     ENDIF.
 
-    DATA lt_header_keys TYPE TABLE FOR READ IMPORT zmerp_r_salesorder.
-
-    " Documents of the changed items
-    lt_header_keys = VALUE #(
-      FOR GROUPS of <g> IN lt_items GROUP BY ( HeaderUUID = <g>-HeaderUUID
-                                               is_draft   = <g>-%is_draft )
-      ( %tky-DocumentUUID = <g>-HeaderUUID
-        %is_draft         = <g>-%is_draft )
-    ).
-
-    " All items of these documents: a changed item can create or remove a duplicate on another item
+    " All items of these documents: a changed or deleted item can create or remove a duplicate on another item
     READ ENTITIES OF zmerp_r_salesorder IN LOCAL MODE
       ENTITY SalesOrder BY \_Items
       FIELDS ( HeaderUUID ItemCode )

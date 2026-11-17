@@ -39,7 +39,7 @@ CLASS zcl_merp_num_range_util DEFINITION
     "! Draws document numbers via NRO: one bulk call per company code, numbers in the order of the documents.
     "! Documents of a company whose numbers cannot be drawn get none (no fallback, N1): the caller's
     "! validation rejects them.
-    "! @parameter is_meta      | NRO metadata of the document type (zif_merp_constants=>c_po, c_gr, c_so, c_gi)
+    "! @parameter is_meta      | NRO metadata of the document type (zif_merp_constants=>c_po, c_gr, c_so, c_gi, c_st)
     "! @parameter it_requests  | Documents without a number, with company code
     "! @parameter rt_numbers   | Drawn numbers (documents without a number are missing)
     CLASS-METHODS get_doc_numbers
@@ -59,6 +59,7 @@ CLASS zcl_merp_num_range_util DEFINITION
     "! Synchronizes the NRO interval levels of all document types of all company codes with the database.
     CLASS-METHODS sync_doc_intervals_from_db.
 
+protected section.
   PRIVATE SECTION.
 
     " Internal Helpers
@@ -120,20 +121,10 @@ CLASS zcl_merp_num_range_util DEFINITION
         cx_number_ranges.
 ENDCLASS.
 
-CLASS zcl_merp_num_range_util IMPLEMENTATION.
 
-  METHOD get_md_codes.
-    rt_codes = zcl_merp_nro_admin_util=>get_next_numbers_from_nro(
-      is_meta  = is_meta
-      iv_count = iv_count ).
 
-    " No fallback to the database maximum: it would leave the NRO level behind and NRO would
-    " issue the same code again later. Fewer codes than requested: the caller fails the instances
-    IF lines( rt_codes ) < iv_count.
-      CLEAR rt_codes.
-      RAISE EXCEPTION NEW cx_number_ranges( ).
-    ENDIF.
-  ENDMETHOD.
+CLASS ZCL_MERP_NUM_RANGE_UTIL IMPLEMENTATION.
+
 
   METHOD get_doc_numbers.
     DATA lt_numbers TYPE string_table.
@@ -165,94 +156,6 @@ CLASS zcl_merp_num_range_util IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
-  METHOD sync_intervals_from_db.
-    sync_master_intervals_from_db( ).
-    sync_doc_intervals_from_db( ).
-  ENDMETHOD.
-
-  METHOD sync_master_intervals_from_db.
-    TYPES tt_metas TYPE STANDARD TABLE OF zif_merp_constants=>ty_entity_metadata WITH EMPTY KEY.
-
-    DATA(lt_metas) = VALUE tt_metas( ( zif_merp_constants=>c_bp )
-                                     ( zif_merp_constants=>c_item )
-                                     ( zif_merp_constants=>c_ig )
-                                     ( zif_merp_constants=>c_vat )
-                                     ( zif_merp_constants=>c_wh ) ).
-
-    LOOP AT lt_metas INTO DATA(ls_meta).
-      sync_interval( ls_meta ).
-    ENDLOOP.
-  ENDMETHOD.
-
-  METHOD sync_doc_intervals_from_db.
-    TYPES tt_metas TYPE STANDARD TABLE OF zif_merp_constants=>ty_entity_metadata WITH EMPTY KEY.
-
-    DATA(lt_metas) = VALUE tt_metas( ( zif_merp_constants=>c_po )
-                                     ( zif_merp_constants=>c_gr )
-                                     ( zif_merp_constants=>c_so )
-                                     ( zif_merp_constants=>c_gi ) ).
-
-    " All companies, also blocked ones: their documents still exist and keep their numbering
-    SELECT company_code
-      FROM zmerp_comp_code
-      INTO TABLE @DATA(lt_companies).
-
-    LOOP AT lt_companies ASSIGNING FIELD-SYMBOL(<ls_company>).
-      LOOP AT lt_metas INTO DATA(ls_meta).
-        sync_interval( is_meta         = ls_meta
-                       iv_company_code = <ls_company>-company_code ).
-      ENDLOOP.
-    ENDLOOP.
-  ENDMETHOD.
-
-  METHOD get_company_prefix.
-    TRY.
-        rv_prefix = NEW zcl_merp_md_comp_code_sel( )->zif_merp_md_comp_code_sel~read_company( iv_company_code )-CompanyPrefix.
-      CATCH zcx_merp_md.
-        CLEAR rv_prefix.
-    ENDTRY.
-  ENDMETHOD.
-
-  METHOD get_next_doc_numbers_nro.
-    rt_numbers = zcl_merp_nro_admin_util=>get_next_numbers_from_nro(
-      is_meta            = is_meta
-      iv_count           = iv_count
-      iv_company_code    = iv_company_code
-      iv_prefix_override = get_company_prefix( iv_company_code ) ).
-
-    " No fallback to the database maximum (see get_md_codes): without numbers
-    " validateDocumentNumber rejects the documents
-    IF lines( rt_numbers ) < iv_count.
-      CLEAR rt_numbers.
-      RAISE EXCEPTION NEW cx_number_ranges( ).
-    ENDIF.
-  ENDMETHOD.
-
-  METHOD sync_interval.
-    TRY.
-        IF iv_company_code IS INITIAL.
-          DATA(lv_level) = get_max_level_from_db( is_meta ).
-
-          zcl_merp_nro_admin_util=>save_interval(
-            iv_object = is_meta-number_object
-            iv_level  = lv_level ).
-        ELSE.
-          DATA(lv_company_level) = get_max_level_from_db(
-            is_meta            = is_meta
-            iv_company_code    = iv_company_code
-            iv_prefix_override = get_company_prefix( iv_company_code ) ).
-
-          zcl_merp_nro_admin_util=>save_interval(
-            iv_object    = is_meta-number_object
-            iv_subobject = CONV #( iv_company_code )
-            iv_level     = lv_company_level ).
-        ENDIF.
-
-      CATCH cx_number_ranges.
-        " The maximum could not be read: keep the current interval instead of saving a wrong (too low) level
-        RETURN.
-    ENDTRY.
-  ENDMETHOD.
 
   METHOD get_max_code_from_db.
     DATA: BEGIN OF ls_result,
@@ -290,6 +193,21 @@ CLASS zcl_merp_num_range_util IMPLEMENTATION.
     ENDTRY.
   ENDMETHOD.
 
+
+  METHOD get_md_codes.
+    rt_codes = zcl_merp_nro_admin_util=>get_next_numbers_from_nro(
+      is_meta  = is_meta
+      iv_count = iv_count ).
+
+    " No fallback to the database maximum: it would leave the NRO level behind and NRO would
+    " issue the same code again later. Fewer codes than requested: the caller fails the instances
+    IF lines( rt_codes ) < iv_count.
+      CLEAR rt_codes.
+      RAISE EXCEPTION NEW cx_number_ranges( ).
+    ENDIF.
+  ENDMETHOD.
+
+
   METHOD extract_numeric_suffix.
 
     IF iv_code IS INITIAL OR strlen( iv_code ) <= iv_offset.
@@ -306,6 +224,16 @@ CLASS zcl_merp_num_range_util IMPLEMENTATION.
         CLEAR rv_numeric.
     ENDTRY.
   ENDMETHOD.
+
+
+  METHOD get_company_prefix.
+    TRY.
+        rv_prefix = NEW zcl_merp_md_comp_code_sel( )->zif_merp_md_comp_code_sel~read_company( iv_company_code )-CompanyPrefix.
+      CATCH zcx_merp_md.
+        CLEAR rv_prefix.
+    ENDTRY.
+  ENDMETHOD.
+
 
   METHOD get_max_level_from_db.
     DATA(lv_prefix) = COND string(
@@ -324,4 +252,90 @@ CLASS zcl_merp_num_range_util IMPLEMENTATION.
       iv_offset = strlen( lv_prefix ) ).
   ENDMETHOD.
 
+
+  METHOD get_next_doc_numbers_nro.
+    rt_numbers = zcl_merp_nro_admin_util=>get_next_numbers_from_nro(
+      is_meta            = is_meta
+      iv_count           = iv_count
+      iv_company_code    = iv_company_code
+      iv_prefix_override = get_company_prefix( iv_company_code ) ).
+
+    " No fallback to the database maximum (see get_md_codes): without numbers
+    " validateDocumentNumber rejects the documents
+    IF lines( rt_numbers ) < iv_count.
+      CLEAR rt_numbers.
+      RAISE EXCEPTION NEW cx_number_ranges( ).
+    ENDIF.
+  ENDMETHOD.
+
+
+  METHOD sync_doc_intervals_from_db.
+    TYPES tt_metas TYPE STANDARD TABLE OF zif_merp_constants=>ty_entity_metadata WITH EMPTY KEY.
+
+    DATA(lt_metas) = VALUE tt_metas( ( zif_merp_constants=>c_po )
+                                     ( zif_merp_constants=>c_gr )
+                                     ( zif_merp_constants=>c_so )
+                                     ( zif_merp_constants=>c_gi )
+                                     ( zif_merp_constants=>c_st ) ).
+
+    " All companies, also blocked ones: their documents still exist and keep their numbering
+    SELECT company_code
+      FROM zmerp_comp_code
+      INTO TABLE @DATA(lt_companies).
+
+    LOOP AT lt_companies ASSIGNING FIELD-SYMBOL(<ls_company>).
+      LOOP AT lt_metas INTO DATA(ls_meta).
+        sync_interval( is_meta         = ls_meta
+                       iv_company_code = <ls_company>-company_code ).
+      ENDLOOP.
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD sync_interval.
+    TRY.
+        IF iv_company_code IS INITIAL.
+          DATA(lv_level) = get_max_level_from_db( is_meta ).
+
+          zcl_merp_nro_admin_util=>save_interval(
+            iv_object = is_meta-number_object
+            iv_level  = lv_level ).
+        ELSE.
+          DATA(lv_company_level) = get_max_level_from_db(
+            is_meta            = is_meta
+            iv_company_code    = iv_company_code
+            iv_prefix_override = get_company_prefix( iv_company_code ) ).
+
+          zcl_merp_nro_admin_util=>save_interval(
+            iv_object    = is_meta-number_object
+            iv_subobject = CONV #( iv_company_code )
+            iv_level     = lv_company_level ).
+        ENDIF.
+
+      CATCH cx_number_ranges.
+        " The maximum could not be read: keep the current interval instead of saving a wrong (too low) level
+        RETURN.
+    ENDTRY.
+  ENDMETHOD.
+
+
+  METHOD sync_intervals_from_db.
+    sync_master_intervals_from_db( ).
+    sync_doc_intervals_from_db( ).
+  ENDMETHOD.
+
+
+  METHOD sync_master_intervals_from_db.
+    TYPES tt_metas TYPE STANDARD TABLE OF zif_merp_constants=>ty_entity_metadata WITH EMPTY KEY.
+
+    DATA(lt_metas) = VALUE tt_metas( ( zif_merp_constants=>c_bp )
+                                     ( zif_merp_constants=>c_item )
+                                     ( zif_merp_constants=>c_ig )
+                                     ( zif_merp_constants=>c_vat )
+                                     ( zif_merp_constants=>c_wh ) ).
+
+    LOOP AT lt_metas INTO DATA(ls_meta).
+      sync_interval( ls_meta ).
+    ENDLOOP.
+  ENDMETHOD.
 ENDCLASS.

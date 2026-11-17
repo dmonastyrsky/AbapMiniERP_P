@@ -12,6 +12,7 @@ define root view entity ZMERP_R_STOCK_MOVEMENT
   association [0..1] to ZMERP_R_ITEM         as _Item         on $projection.ItemCode      = _Item.ItemCode
   association [0..1] to ZMERP_R_GOODSRECEIPT as _GoodsReceipt on $projection.DocumentUUID  = _GoodsReceipt.DocumentUUID
   association [0..1] to ZMERP_R_GOODSISSUE   as _GoodsIssue   on $projection.DocumentUUID  = _GoodsIssue.DocumentUUID
+  association [0..1] to ZMERP_R_STOCKTRANSFER as _StockTransfer on $projection.DocumentUUID = _StockTransfer.DocumentUUID
 {
   key movement_uuid   as MovementUUID,
 
@@ -30,9 +31,8 @@ define root view entity ZMERP_R_STOCK_MOVEMENT
       document_type   as DocumentType,
       document_uuid   as DocumentUUID,
 
-      // A movement belongs either to a goods receipt or to a goods issue
       @EndUserText.label: 'Document'
-      coalesce( _GoodsReceipt.DocumentNumber, _GoodsIssue.DocumentNumber ) as DocumentNumber,
+      coalesce( coalesce( _GoodsReceipt.DocumentNumber, _GoodsIssue.DocumentNumber ), _StockTransfer.DocumentNumber ) as DocumentNumber,
 
       @Semantics.quantity.unitOfMeasure: 'UnitOfMeasure'
       quantity        as Quantity,

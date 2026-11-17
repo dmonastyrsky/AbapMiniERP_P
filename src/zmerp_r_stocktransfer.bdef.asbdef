@@ -1,0 +1,122 @@
+managed with additional save implementation in class ZBP_MERP_R_STOCKTRANSFER unique;
+strict ( 2 );
+with draft;
+extensible;
+
+define behavior for ZMERP_R_STOCKTRANSFER alias StockTransfer
+persistent table zmerp_st_hdr
+extensible
+draft table zmerp_st_hdr_d
+etag master LocalLastChangedAt
+lock master total etag LastChangedAt
+authorization master ( global )
+{
+  create;
+  update;
+  delete ( features : instance, precheck );
+
+  association _Items { create; with draft; }
+
+  field ( readonly, numbering : managed ) DocumentUUID;
+
+  field ( readonly ) DocumentNumber;
+  field ( readonly ) Status;
+  field ( readonly ) CreatedBy, CreatedAt, LocalLastChangedBy, LocalLastChangedAt, LastChangedAt;
+
+  field ( mandatory ) WarehouseCode, ReceivingWarehouseCode, DocumentDate;
+  field ( features : instance ) CompanyCode;
+
+  action ( features : instance ) postDocument result [1] $self;
+  action ( features : instance ) cancelDocument result [1] $self;
+  action ( features : instance ) unpostDocument result [1] $self;
+
+  determination setHeaderDefaults          on modify { create; }
+  determination deriveHeaderOnCompanyCode  on modify { field CompanyCode; }
+  determination syncItemWarehouse          on modify { field WarehouseCode; }
+  determination syncItemReceivingWarehouse on modify { field ReceivingWarehouseCode; }
+  determination assignDocumentNumber       on save { create; }
+  determination deriveDatesOnDocumentDate  on modify { field DocumentDate; }
+
+  determination clearMessagesForDates        on modify { field DocumentDate, PostingDate; }
+  determination clearMessagesForHeaderFields on modify { field CompanyCode, WarehouseCode, ReceivingWarehouseCode; }
+
+  validation validateHeaderFields on save { create; update; field CompanyCode, WarehouseCode, ReceivingWarehouseCode; }
+  validation validateDocumentNumber on save { create; }
+  validation validateDates on save { create; update; field DocumentDate, PostingDate; }
+
+  draft action ( features : instance ) Edit;
+  draft action Activate optimized;
+  draft action Discard;
+  draft action Resume;
+  draft determine action Prepare
+  {
+    validation validateHeaderFields;
+    validation validateDates;
+    validation StockTransferItem~validateItemFields;
+  }
+
+  mapping for zmerp_st_hdr
+  {
+    DocumentUUID           = document_uuid;
+    DocumentNumber         = document_number;
+    DocumentDate           = document_date;
+    PostingDate            = posting_date;
+    CompanyCode            = company_code;
+    WarehouseCode          = warehouse_code;
+    ResponsiblePerson      = responsible_person;
+    Remarks                = remarks;
+    ReceivingWarehouseCode = receiving_warehouse_code;
+    Status                 = status;
+    CreatedBy              = created_by;
+    CreatedAt              = created_at;
+    LocalLastChangedBy     = local_last_changed_by;
+    LocalLastChangedAt     = local_last_changed_at;
+    LastChangedAt          = last_changed_at;
+  }
+}
+
+define behavior for ZMERP_R_STOCKTRANSFERITM alias StockTransferItem
+persistent table zmerp_st_itm
+extensible
+draft table zmerp_st_itm_d
+etag master LocalLastChangedAt
+lock dependent by _StockTransfer
+authorization dependent by _StockTransfer
+{
+  update;
+  delete ( precheck );
+
+  association _StockTransfer { with draft; }
+
+  field ( readonly, numbering : managed ) ItemUUID;
+  field ( readonly ) HeaderUUID;
+
+  field ( readonly ) ItemNo, UnitOfMeasure, WarehouseCode, ReceivingWarehouseCode;
+  field ( readonly ) CreatedBy, CreatedAt, LocalLastChangedBy, LocalLastChangedAt, LastChangedAt;
+
+  field ( mandatory ) ItemCode, Quantity;
+
+  determination setItemDefaults on modify { create; field ItemCode; }
+
+  determination clearMessagesForItemFields on modify { field Quantity, UnitOfMeasure; }
+  determination handleMessagesOnItemModify on modify { delete; field ItemCode; }
+
+  validation validateItemFields on save { create; update; field ItemCode, Quantity; }
+
+  mapping for zmerp_st_itm
+  {
+    ItemUUID               = item_uuid;
+    HeaderUUID             = header_uuid;
+    ItemNo                 = item_no;
+    ItemCode               = item_code;
+    Quantity               = quantity;
+    UnitOfMeasure          = unit_of_measure;
+    WarehouseCode          = warehouse_code;
+    ReceivingWarehouseCode = receiving_warehouse_code;
+    CreatedBy              = created_by;
+    CreatedAt              = created_at;
+    LocalLastChangedBy     = local_last_changed_by;
+    LocalLastChangedAt     = local_last_changed_at;
+    LastChangedAt          = last_changed_at;
+  }
+}

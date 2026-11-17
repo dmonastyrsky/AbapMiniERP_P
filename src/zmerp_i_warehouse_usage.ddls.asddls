@@ -42,3 +42,23 @@ union all select from ZMERP_R_GOODSISSUE
       cast( 'X' as abap_boolean preserving type )       as IsDocument
 }
 where WarehouseCode is not initial
+
+union all select from ZMERP_R_STOCKTRANSFER
+{
+  key WarehouseCode                                    as WarehouseCode,
+  key DocumentUUID                                     as DocumentUUID,
+  key cast( bintohex( DocumentUUID ) as abap.char(40) ) as RefEntityKey,
+  key cast( 'Stock Transfer' as zmerp_entity_name )    as UsedInEntity,
+      cast( 'X' as abap_boolean preserving type )       as IsDocument
+}
+where WarehouseCode is not initial
+
+union all select from ZMERP_R_STOCKTRANSFER
+{
+  key ReceivingWarehouseCode                           as WarehouseCode,
+  key DocumentUUID                                     as DocumentUUID,
+  key cast( bintohex( DocumentUUID ) as abap.char(40) ) as RefEntityKey,
+  key cast( 'Stock Transfer' as zmerp_entity_name )    as UsedInEntity,
+      cast( 'X' as abap_boolean preserving type )       as IsDocument
+}
+where ReceivingWarehouseCode is not initial

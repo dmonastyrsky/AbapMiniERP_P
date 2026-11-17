@@ -15,7 +15,10 @@ CLASS zcl_merp_md_vat_rate_sel DEFINITION
       RETURNING VALUE(rt_keys) TYPE zif_merp_md_vat_rate_sel=>tt_vat_rate_keys.
 ENDCLASS.
 
-CLASS zcl_merp_md_vat_rate_sel IMPLEMENTATION.
+
+
+CLASS ZCL_MERP_MD_VAT_RATE_SEL IMPLEMENTATION.
+
 
   METHOD zif_merp_md_vat_rate_sel~read_vat_rate.
     DATA(lt_vat_rates) = zif_merp_md_vat_rate_sel~read_vat_rates(
@@ -34,6 +37,7 @@ CLASS zcl_merp_md_vat_rate_sel IMPLEMENTATION.
     ENDTRY.
   ENDMETHOD.
 
+
   METHOD zif_merp_md_vat_rate_sel~read_vat_rates.
     DATA(lt_clean_keys) = prepare_keys( it_vat_rate_keys ).
     IF lt_clean_keys IS INITIAL.
@@ -45,6 +49,15 @@ CLASS zcl_merp_md_vat_rate_sel IMPLEMENTATION.
       INNER JOIN @lt_clean_keys AS keys ON vat~VatCode = keys~VatCode
       INTO TABLE @rt_vat_rates.
   ENDMETHOD.
+
+
+  METHOD prepare_keys.
+    rt_keys = it_keys.
+    DELETE rt_keys WHERE VatCode IS INITIAL.
+    SORT rt_keys BY VatCode.
+    DELETE ADJACENT DUPLICATES FROM rt_keys COMPARING VatCode.
+  ENDMETHOD.
+
 
   METHOD zif_merp_md_vat_rate_sel~read_usages.
     DATA(lt_clean_keys) = prepare_keys( it_vat_rate_keys ).
@@ -58,12 +71,4 @@ CLASS zcl_merp_md_vat_rate_sel IMPLEMENTATION.
       INNER JOIN @lt_clean_keys AS keys ON usage~VatCode = keys~VatCode
       INTO CORRESPONDING FIELDS OF TABLE @rt_usages.
   ENDMETHOD.
-
-  METHOD prepare_keys.
-    rt_keys = it_keys.
-    DELETE rt_keys WHERE VatCode IS INITIAL.
-    SORT rt_keys BY VatCode.
-    DELETE ADJACENT DUPLICATES FROM rt_keys COMPARING VatCode.
-  ENDMETHOD.
-
 ENDCLASS.

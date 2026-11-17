@@ -47,6 +47,12 @@
     <T100>
      <SPRSL>E</SPRSL>
      <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>007</MSGNR>
+     <TEXT>Select Receiving Warehouse.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
      <MSGNR>020</MSGNR>
      <TEXT>Select Currency.</TEXT>
     </T100>
@@ -359,6 +365,18 @@
     <T100>
      <SPRSL>E</SPRSL>
      <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>142</MSGNR>
+     <TEXT>Receiving warehouse must differ from issuing warehouse.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>143</MSGNR>
+     <TEXT>Item &amp;1 is not kept in stock and cannot be transferred.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
      <MSGNR>150</MSGNR>
      <TEXT>Purchase Order &amp;1 is used in &amp;2.</TEXT>
     </T100>
@@ -379,6 +397,12 @@
      <ARBGB>ZMC_MERP_DOC</ARBGB>
      <MSGNR>153</MSGNR>
      <TEXT>Goods Issue &amp;1 is used in &amp;2.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMC_MERP_DOC</ARBGB>
+     <MSGNR>154</MSGNR>
+     <TEXT>Stock Transfer &amp;1 is used in &amp;2.</TEXT>
     </T100>
     <T100>
      <SPRSL>E</SPRSL>
